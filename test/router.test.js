@@ -59,7 +59,7 @@ test('getPickerData makerworld', async () => {
 });
 
 test('getPickerData other site and error', async () => {
-  const r = await router.handle({ type: 'getPickerData', url: 'https://www.thingiverse.com/thing:9' });
+  const r = await router.handle({ type: 'getPickerData', url: 'https://www.thingiverse.com/search?q=x' });
   assert.equal(r.site, 'thingiverse');
   assert.equal(r.model, undefined);
   client.mwResolve = async () => err('nope', 'notfound');
@@ -98,7 +98,7 @@ test('save: auth error propagates, lastFolderId untouched', async () => {
 });
 
 test('save: other site / non-model / thrown error', async () => {
-  assert.deepEqual(await router.handle({ type: 'save', url: 'https://www.thingiverse.com/thing:9' }), { ok: false, error: 'Not supported yet', site: 'thingiverse' });
+  assert.equal((await router.handle({ type: 'save', url: 'https://www.thingiverse.com/thing:9' })).site, 'thingiverse');
   assert.equal((await router.handle({ type: 'save', url: 'https://example.com' })).ok, false);
   client.mwResolve = async () => { throw new Error('boom'); };
   const r = await router.handle({ type: 'save', url: MW });
@@ -230,4 +230,49 @@ test('save printables: two files, one large -> one upload per file across both p
   assert.equal(r2.ok, true);
   assert.deepEqual(c.uploads.map((u) => u.name), ['b.stl', 'c.stl']);
   assert.equal(await settings.getSetting('lastFolderId'), 5);
+});
+
+// ---- Thingiverse ----
+const TV = 'https://www.thingiverse.com/thing:5';
+const tvPage = { title: 'Benchy by Cr - Thingiverse', jsonLd: [], og: { image: 'https://og.jpg' }, fileLinks: [{ href: '/download:7', text: 'b.stl' }] };
+function tvFetch(zip) {
+  const f = async (url) => {
+    f.calls.push(url);
+    if (url.endsWith('/zip')) return { ok: zip, status: zip ? 200 : 403, headers: new Headers({ 'content-type': zip ? 'application/zip' : 'text/html' }), body: { cancel: async () => {} } };
+    return { ok: true, status: 200, headers: new Headers(), body: new Response(new Uint8Array([1, 2, 3])).body, blob: async () => new Blob([new Uint8Array(2)]) };
+  };
+  f.calls = [];
+  return f;
+}
+
+test('getPickerData thingiverse uses execInTab with tabId', async () => {
+  const calls = [];
+  router = createRouter({ getClient: async () => client, settings, execInTab: async (id, fn, args) => { calls.push([id, typeof fn, args]); return tvPage; } });
+  const r = await router.handle({ type: 'getPickerData', url: TV, tabId: 9 });
+  assert.deepEqual(calls, [[9, 'function', []]]);
+  assert.equal(r.site, 'thingiverse');
+  assert.deepEqual(r.model, { title: 'Benchy', designer: 'Cr', thumbnail: 'https://og.jpg', files: ['b.stl'] });
+});
+
+test('save thingiverse: links strategy, diagnostics, lastFolderId', async () => {
+  const c = prClient();
+  await settings.setSettings({ uploadMode: 'buffer' });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: tvFetch(false), execInTab: async () => tvPage });
+  const r = await router.handle({ type: 'save', url: TV, tabId: 9, folderId: 3 });
+  assert.equal(r.ok, true);
+  assert.equal(r.site, 'thingiverse');
+  assert.equal(c.uploads[0].name, 'b.stl');
+  assert.equal(await settings.getSetting('lastFolderId'), 3);
+  assert.equal((await settings.getSetting('diagnostics')).thingiverse.strategy, 'links');
+});
+
+test('save thingiverse: blocked records none + error, no lastFolderId', async () => {
+  router = createRouter({ getClient: async () => prClient(), settings, fetchImpl: tvFetch(false), execInTab: async () => ({ fileLinks: [] }) });
+  const r = await router.handle({ type: 'save', url: TV, tabId: 9, folderId: 3 });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Cloudflare/);
+  const d = (await settings.getSetting('diagnostics')).thingiverse;
+  assert.equal(d.strategy, 'none');
+  assert.match(d.error, /Cloudflare/);
+  assert.notEqual(await settings.getSetting('lastFolderId'), 3);
 });

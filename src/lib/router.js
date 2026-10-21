@@ -3,6 +3,7 @@ import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders } from './folders.js';
 import { fetchPrintablesModel, fetchPrint, selectFiles, parseModelId } from './adapters/printables.js';
+import { fetchThingiverseModel, readPageInTab, parsePageMeta } from './adapters/thingiverse.js';
 import { runUploadPipeline } from './uploadPipeline.js';
 
 const fail = (r) => ({ ok: false, error: r.error, kind: r.kind });
@@ -27,7 +28,7 @@ export function createRouter(deps) {
     return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error };
   }
 
-  async function getPickerData({ url }) {
+  async function getPickerData({ url, tabId }) {
     const client = await withClient();
     if (!client) return { ok: false, error: 'Not configured' };
     const page = isModelPage(url);
@@ -36,6 +37,7 @@ export function createRouter(deps) {
     if (!fr.ok) return fail(fr);
     const folders = flattenFolders(fr.data);
     if (site === 'printables' && page) return printablesPicker(url, folders, lastFolderId);
+    if (site === 'thingiverse' && page) return thingiversePicker(tabId, folders, lastFolderId);
     if (site !== 'makerworld' || !page) return { ok: true, site, folders, lastFolderId };
     const rr = await client.mwResolve(url);
     if (!rr.ok) return fail(rr);
@@ -66,23 +68,57 @@ export function createRouter(deps) {
     }
   }
 
-  async function savePrintables({ url, folderId, confirmLarge }, client) {
+  async function readPage(tabId) {
+    if (!deps.execInTab || tabId == null) return undefined;
+    return deps.execInTab(tabId, readPageInTab, []);
+  }
+
+  async function thingiversePicker(tabId, folders, lastFolderId) {
+    try {
+      const pd = await readPage(tabId);
+      if (!pd) throw new Error('Could not read the Thingiverse page. Reload the Thing page and try again.');
+      const pm = parsePageMeta(pd);
+      return {
+        ok: true, site: 'thingiverse',
+        model: { title: pm.title, designer: pm.designer || '', thumbnail: pm.thumbnailUrl || '', files: pm.files.map((f) => f.name) },
+        folders, lastFolderId,
+      };
+    } catch (e) {
+      await recordDiag('thingiverse', { strategy: 'none', error: String(e?.message || e) });
+      return { ok: false, error: String(e?.message || e), kind: 'client' };
+    }
+  }
+
+  async function saveThingiverse({ url, tabId, folderId, confirmLarge }, client) {
+    return saveModel('thingiverse', { folderId, confirmLarge }, client, async () => {
+      let pageData;
+      try { pageData = await readPage(tabId); } catch { /* zip strategy may still work */ }
+      return fetchThingiverseModel(url, { fetchImpl, pageData });
+    });
+  }
+
+  const savePrintables = ({ url, folderId, confirmLarge }, client) => saveModel('printables', { folderId, confirmLarge }, client, async () => {
+    const m = await fetchPrintablesModel(url, { fetchImpl });
+    if (!m.files.length) throw new Error('No Bambuddy-compatible files (.3mf/.stl) on this model');
+    return { ...m, strategy: 'graphql' };
+  });
+
+  async function saveModel(site, { folderId, confirmLarge }, client, getModel) {
     const fid = folderId === '' ? null : folderId ?? null;
     let model;
     try {
-      model = await fetchPrintablesModel(url, { fetchImpl });
-      if (!model.files.length) throw new Error('No Bambuddy-compatible files (.3mf/.stl) on this model');
+      model = await getModel();
     } catch (e) {
       const error = String(e?.message || e);
-      await recordDiag('printables', { strategy: 'graphql', error });
-      return { ok: false, site: 'printables', error, kind: 'client' };
+      await recordDiag(site, { strategy: site === 'printables' ? 'graphql' : 'none', error });
+      return { ok: false, site, error, kind: 'client' };
     }
     const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl']);
     const limit = s.maxFileMB * 1048576;
     const big = model.files.filter((f) => f.sizeHint > limit).map((f) => ({ filename: f.filename, bytes: f.sizeHint }));
     if (big.length && confirmLarge !== true) {
       return {
-        ok: false, site: 'printables', error: `Large file(s) over ${s.maxFileMB} MB need confirmation`,
+        ok: false, site, error: `Large file(s) over ${s.maxFileMB} MB need confirmation`,
         needsConfirmLarge: { files: big }, fileIds: [], results: [], warnings: [], skipped: [],
       };
     }
@@ -101,10 +137,10 @@ export function createRouter(deps) {
       hooks,
     });
     const failed = out.results.find((r) => !r.ok);
-    await recordDiag('printables', { strategy: 'graphql', ...(out.ok ? {} : { error: failed?.error || 'Upload failed' }) });
+    await recordDiag(site, { strategy: model.strategy, ...(out.ok ? {} : { error: failed?.error || 'Upload failed' }) });
     const res = {
       ok: out.ok && out.results.some((r) => r.ok),
-      site: 'printables', fileIds: out.fileIds, results: out.results, warnings: out.warnings, skipped: out.skipped,
+      site, fileIds: out.fileIds, results: out.results, warnings: out.warnings, skipped: out.skipped,
       openUrl: openUrlFor(s.baseUrl, fid),
     };
     if (!res.ok) res.error = failed?.error || 'Nothing was imported';
@@ -119,6 +155,7 @@ export function createRouter(deps) {
     const page = isModelPage(url);
     if (!page) return { ok: false, error: 'Not a model page' };
     if (page.site === 'printables') return savePrintables(msg, client);
+    if (page.site === 'thingiverse') return saveThingiverse(msg, client);
     if (page.site !== 'makerworld') return { ok: false, error: 'Not supported yet', site: page.site };
     let pid = profileId ?? null;
     let iid = instanceId ?? null;

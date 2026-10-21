@@ -8,6 +8,8 @@ const send = (msg) => chrome.runtime.sendMessage(msg);
 const openOptions = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
 let tabUrl = '';
+let tabId;
+let site = 'printables';
 let baseUrl = '';
 let confirmLarge = false;
 
@@ -50,7 +52,7 @@ async function savePrintables() {
   $('busy-progress').textContent = '';
   let r;
   try {
-    r = await send({ type: 'save', url: tabUrl, folderId: $('pr-folder').value ? Number($('pr-folder').value) : null, confirmLarge });
+    r = await send({ type: 'save', url: tabUrl, tabId, folderId: $('pr-folder').value ? Number($('pr-folder').value) : null, confirmLarge });
   } catch (e) {
     return showError({ error: e?.message || 'Extension background unavailable' });
   }
@@ -65,9 +67,10 @@ async function savePrintables() {
 }
 
 async function initPrintables() {
+  const tv = site === 'thingiverse';
   let r;
   try {
-    r = await send({ type: 'getPickerData', url: tabUrl });
+    r = await send({ type: 'getPickerData', url: tabUrl, tabId });
   } catch (e) {
     return showError({ error: e?.message || 'Extension background unavailable' });
   }
@@ -78,10 +81,10 @@ async function initPrintables() {
   $('pr-thumb').hidden = !m.thumbnail;
   if (m.thumbnail) $('pr-thumb').src = m.thumbnail;
   $('pr-files').replaceChildren(...m.files.map((n) => Object.assign(document.createElement('li'), { textContent: n })));
-  fill($('pr-folder'), folderOptions(r.folders, r.lastFolderId, 'Default (Printables folder)'));
+  fill($('pr-folder'), folderOptions(r.folders, r.lastFolderId, tv ? 'Default (Thingiverse folder)' : 'Default (Printables folder)'));
   $('pr-premium').hidden = !m.premium;
-  $('pr-nofiles').hidden = m.premium || m.files.length > 0;
-  $('pr-import').hidden = m.premium || !m.files.length;
+  $('pr-nofiles').hidden = tv || m.premium || m.files.length > 0;
+  $('pr-import').hidden = !tv && (m.premium || !m.files.length);
   $('pr-import').addEventListener('click', () => { confirmLarge = false; savePrintables().catch((e) => showError({ error: e.message })); });
   $('pr-confirm-yes').addEventListener('click', () => { confirmLarge = true; savePrintables().catch((e) => showError({ error: e.message })); });
   $('pr-confirm-no').addEventListener('click', () => { $('pr-confirm').hidden = true; $('pr-import').hidden = false; });
@@ -116,10 +119,11 @@ async function init() {
   $('error-options').addEventListener('click', openOptions);
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabUrl = tab?.url || '';
+  tabId = tab?.id;
   const settings = await getSettings(['baseUrl', 'apiKey']);
   baseUrl = settings.baseUrl;
   const st = deriveState({ settings, tabUrl });
-  if (st.state === 'printables') return initPrintables();
+  if (st.state === 'printables' || st.state === 'thingiverse') { site = st.state; return initPrintables(); }
   if (st.state !== 'makerworld') return show(st.state);
   let r;
   try {

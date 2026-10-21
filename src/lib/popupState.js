@@ -6,7 +6,7 @@ export function deriveState({ settings, tabUrl }) {
   if (!isConfigured(settings)) return { state: 'setup' };
   const page = isModelPage(tabUrl);
   if (!page) return { state: 'unsupported' };
-  return { state: page.site === 'makerworld' || page.site === 'printables' ? page.site : 'other', site: page.site, id: page.id };
+  return { state: ['makerworld', 'printables', 'thingiverse'].includes(page.site) ? page.site : 'other', site: page.site, id: page.id };
 }
 
 export function folderOptions(folders, lastFolderId, defaultLabel = 'Default (MakerWorld folder)') {

@@ -6,7 +6,10 @@ const router = createRouter({
   settings,
   chrome,
   onProgress: (p) => { chrome.runtime.sendMessage({ type: 'progress', ...p }).catch(() => {}); },
-  execInTab: (opts) => chrome.scripting.executeScript(opts),
+  async execInTab(tabId, func, args = []) {
+    const [first] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
+    return first?.result;
+  },
   async getClient() {
     const s = await settings.getSettings(['baseUrl', 'apiKey']);
     return settings.isConfigured(s) ? createClient({ baseUrl: s.baseUrl, apiKey: s.apiKey }) : null;
