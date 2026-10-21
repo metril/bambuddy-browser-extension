@@ -16,7 +16,7 @@ export function buildMultipartStream({
   boundary = createBoundary(),
 }) {
   const enc = new TextEncoder();
-  const safeName = String(filename).replace(/"/g, '%22');
+  const safeName = String(filename).replace(/"/g, '%22').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
   const head = enc.encode(
     `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${safeName}"\r\nContent-Type: ${contentType}\r\n\r\n`,
   );

@@ -1,5 +1,5 @@
 // Download -> upload -> metadata pipeline. No chrome.* usage; hooks and fetchImpl are injected.
-import { classifyFile, isUploadable, buildNotes, siteLabel } from './filenames.js';
+import { classifyFile, isUploadable, buildNotes, siteLabel, sanitizeFilename } from './filenames.js';
 import { buildMultipartStream, countingTransform } from './multipartStream.js';
 
 const MB = 1024 * 1024;
@@ -8,9 +8,13 @@ const msg = (e) => (e && e.message) || String(e);
 
 export async function fetchSource(fetchImpl, url, credentials) {
   try {
-    const res = await fetchImpl(url, { credentials });
-    if (!res.ok) return { error: `Download failed (HTTP ${res.status})` };
-    return { res };
+    const ctl = new AbortController();
+    const res = await fetchImpl(url, { credentials, signal: ctl.signal });
+    if (!res.ok) {
+      ctl.abort();
+      return { error: `Download failed (HTTP ${res.status})` };
+    }
+    return { res, ctl };
   } catch (e) {
     return { error: `Download failed: ${msg(e)}` };
   }
@@ -27,16 +31,21 @@ export async function readToBlob(res, { limitBytes, onBytes } = {}) {
   let total = 0;
   if (!res.body) return new Blob([await res.arrayBuffer()]);
   const reader = res.body.getReader();
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    total += value.byteLength;
-    if (limitBytes && total > limitBytes) {
-      await reader.cancel().catch(() => {});
-      throw new Error(`File exceeds the ${Math.round(limitBytes / MB)} MB limit`);
+  let finished = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) { finished = true; break; }
+      chunks.push(value);
+      total += value.byteLength;
+      if (limitBytes && total > limitBytes) {
+        throw new Error(`File exceeds the ${Math.round(limitBytes / MB)} MB limit`);
+      }
+      onBytes?.(total);
     }
-    onBytes?.(total);
+  } finally {
+    if (!finished) await reader.cancel().catch(() => {});
+    try { reader.releaseLock(); } catch { /* pending read */ }
   }
   return new Blob(chunks);
 }
@@ -108,12 +117,15 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
   const progress = (fileIndex, filename, phase) => (bytes, total) =>
     hooks.onProgress?.({ fileIndex, filename, phase, bytes, total });
 
-  async function doUpload(kind, fileIndex, filename, res, total, opts) {
+  // Stream mode is memory-bounded (one chunk) but not byte-capped when Content-Length is absent.
+  async function doUpload(kind, fileIndex, filename, src, total, opts) {
     // Returns { r, mode } where r is the api result.
     const isZip = kind === 'zip';
-    const send = async (r0, useMode) => {
+    const send = async (s0, useMode) => {
+      const r0 = s0.res;
       if (useMode === 'stream') {
-        const parts = streamParts(r0, filename, progress(fileIndex, filename, 'upload'));
+        const onUp = progress(fileIndex, filename, 'upload');
+        const parts = streamParts(r0, filename, (b) => onUp(b, total));
         return isZip ? client.extractZipStream(parts, opts) : client.uploadFileStream(parts, opts);
       }
       const blob = await readToBlob(r0, {
@@ -123,13 +135,16 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
       progress(fileIndex, filename, 'upload')(blob.size, blob.size);
       return isZip ? client.extractZip(blob, filename, opts) : client.uploadFile(blob, filename, opts);
     };
-    let r = await send(res, mode);
+    let r;
+    try { r = await send(src, mode); } catch (e) { src.ctl.abort(); throw e; }
+    if (!r.ok) src.ctl.abort();
     if (mode === 'stream' && r.streamUnsupported) {
       mode = 'buffer';
       hooks.setUploadMode?.('buffer');
       const again = await fetchSource(fetchImpl, files[fileIndex].url, credentials);
       if (again.error) return { r: { ok: false, error: again.error }, used: 'buffer' };
-      r = await send(again.res, 'buffer');
+      try { r = await send(again, 'buffer'); } catch (e) { again.ctl.abort(); throw e; }
+      if (!r.ok) again.ctl.abort();
     }
     return { r, used: mode };
   }
@@ -145,7 +160,8 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
   }
 
   for (let i = 0; i < files.length; i++) {
-    const { filename, url, sizeHint } = files[i];
+    const { url, sizeHint } = files[i];
+    const filename = sanitizeFilename(files[i].filename);
     const kind = classifyFile(filename);
     if (!isUploadable(filename)) {
       out.warnings.push(`Skipped ${filename}: unsupported file type`);
@@ -162,7 +178,7 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
     if (total > limitBytes) {
       const go = hooks.confirmLarge ? await hooks.confirmLarge({ filename, bytes: total }) : false;
       if (!go) {
-        await src.res.body?.cancel?.().catch(() => {});
+        src.ctl.abort();
         out.warnings.push(`Skipped ${filename}: larger than ${maxFileMB} MB`);
         out.skipped.push({ filename, reason: 'too-large' });
         continue;
@@ -171,7 +187,7 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
     const opts = kind === 'zip' ? { folderId, createFolderFromZip: true } : { folderId };
     let up;
     try {
-      up = await doUpload(kind, i, filename, src.res, total, opts);
+      up = await doUpload(kind, i, filename, src, total, opts);
     } catch (e) {
       up = { r: { ok: false, error: msg(e) }, used: mode };
     }

@@ -187,3 +187,28 @@ test('duplicate_of surfaced', async () => {
   const r = await runUploadPipeline({ ...s.base, files: [{ url: 'u/a', filename: 'a.stl' }] });
   assert.equal(r.results[0].duplicateOf, 2);
 });
+
+test('failed stream send aborts the first source before the re-fetch', async () => {
+  const s = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 0, error: 'h1', kind: 'network', streamUnsupported: true }) },
+  });
+  const events = [];
+  const inner = s.base.options.fetchImpl;
+  s.base.options.fetchImpl = async (url, init) => {
+    const n = events.filter((e) => e.startsWith('fetch')).length;
+    events.push(`fetch${n}`);
+    init.signal.addEventListener('abort', () => events.push(`abort${n}`));
+    return inner(url, init);
+  };
+  const r = await runUploadPipeline({ ...s.base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, true);
+  assert.deepEqual(events, ['fetch0', 'abort0', 'fetch1']);
+});
+
+test('stream progress carries total; filenames are sanitized', async () => {
+  const s = setup({ sources: { 'u/a': { headers: { 'content-length': '5' } } } });
+  const r = await runUploadPipeline({ ...s.base, files: [{ url: 'u/a', filename: 'a:b.stl' }] });
+  assert.equal(r.results[0].filename, 'a_b.stl');
+  assert.equal(s.progress.filter((p) => p.phase === 'upload').at(-1).total, 5);
+});

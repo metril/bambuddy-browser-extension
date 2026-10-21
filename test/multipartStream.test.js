@@ -51,3 +51,8 @@ test('multipart works with a boundary default and cancel propagates', async () =
   await r.cancel();
   assert.ok(cancelled);
 });
+
+test('filename CR/LF are escaped', async () => {
+  const { stream } = buildMultipartStream({ field: 'f', filename: 'a\r\nb', body: streamOf([]), boundary: 'B' });
+  assert.match(concat(await collect(stream)).toString(), /filename="a%0D%0Ab"/);
+});
