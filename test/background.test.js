@@ -77,3 +77,35 @@ test('router throw becomes error outcome', async () => {
   await bg.saveUrl('https://makerworld.com/en/models/1');
   assert.equal(fc.calls.badgeText.at(-1).text, '!');
 });
+
+test('badge clears via fast timeout and alarm fallback', async () => {
+  const orig = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return { unref() {} }; };
+  try { await bg.saveUrl('https://makerworld.com/en/models/1'); } finally { globalThis.setTimeout = orig; }
+  assert.equal(timers[0].ms, 3000);
+  assert.equal(fc.calls.alarmsCreate[0].name, 'badge-clear');
+  timers[0].fn();
+  await Promise.resolve();
+  assert.equal(fc.calls.badgeText.at(-1).text, '');
+});
+
+test('notification closed removes stored url', async () => {
+  await bg.saveUrl('https://makerworld.com/en/models/1');
+  const { id } = fc.calls.notifications[0];
+  assert.ok(fc.storage.session.data[`notifUrl:${id}`]);
+  await bg.onNotificationClosed(id);
+  assert.equal(fc.storage.session.data[`notifUrl:${id}`], undefined);
+});
+
+test('multi-file message counts only ok results; needsConfirmLarge message', () => {
+  assert.equal(outcomeToNotification({ ok: true, results: [{ ok: true }, { ok: false }] }).message, 'Imported 1 files');
+  assert.match(outcomeToNotification({ ok: false, error: 'x', needsConfirmLarge: { files: [] } }).message, /open the popup to confirm/);
+});
+
+test('flashBadge/notify throwing does not reject saveUrl', async () => {
+  fc.action.setBadgeText = async () => { throw new Error('boom'); };
+  fc.notifications.create = async () => { throw new Error('boom'); };
+  const r = await bg.saveUrl('https://makerworld.com/en/models/1');
+  assert.equal(r.ok, true);
+});

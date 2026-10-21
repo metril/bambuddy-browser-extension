@@ -22,6 +22,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => { bg.onMenuClick(info, 
 chrome.commands.onCommand.addListener((command) => { bg.onCommand(command); });
 chrome.alarms.onAlarm.addListener((alarm) => { bg.onAlarm(alarm); });
 chrome.notifications.onClicked.addListener((id) => { bg.onNotificationClicked(id); });
+chrome.notifications.onClosed.addListener((id) => { bg.onNotificationClosed(id); });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;

@@ -17,9 +17,10 @@ export function outcomeToBadge(r) {
 }
 
 export function outcomeToNotification(r) {
+  if (r?.needsConfirmLarge) return { message: 'File too large for one-click import — open the popup to confirm', openUrl: null };
   if (!r?.ok) return { message: r?.error || 'Save failed', openUrl: null };
   if (r.wasExisting) return { message: 'Already in library', openUrl: null };
-  const n = r.filename || (Array.isArray(r.results) ? `${r.results.length} files` : 'model');
+  const n = r.filename || (Array.isArray(r.results) ? `${r.results.filter((x) => x.ok).length} files` : 'model');
   return { message: `Imported ${n}`, openUrl: r.openUrl || null };
 }
 
@@ -29,6 +30,8 @@ export function createBackground({ chrome, router, settings }) {
     const { text, color } = outcomeToBadge(result);
     await chrome.action.setBadgeBackgroundColor({ color });
     await chrome.action.setBadgeText({ text });
+    // Fast clear while the SW is alive; the alarm is the restart-safe fallback.
+    setTimeout(() => { Promise.resolve(chrome.action.setBadgeText({ text: '' })).catch(() => {}); }, BADGE_CLEAR_MS).unref?.();
     await chrome.alarms.create(BADGE_CLEAR_ALARM, { when: Date.now() + BADGE_CLEAR_MS });
   }
 
@@ -50,8 +53,8 @@ export function createBackground({ chrome, router, settings }) {
     } catch (e) {
       result = { ok: false, error: e?.message || String(e), kind: 'unknown' };
     }
-    await flashBadge(result);
-    await notify(result);
+    try { await flashBadge(result); } catch { /* cosmetic */ }
+    try { await notify(result); } catch { /* cosmetic */ }
     return result;
   }
 
@@ -74,6 +77,9 @@ export function createBackground({ chrome, router, settings }) {
     },
     async onAlarm(alarm) {
       if (alarm.name === BADGE_CLEAR_ALARM) await chrome.action.setBadgeText({ text: '' });
+    },
+    async onNotificationClosed(id) {
+      try { await chrome.storage.session.remove(`notifUrl:${id}`); } catch { /* best-effort */ }
     },
     async onNotificationClicked(id) {
       const key = `notifUrl:${id}`;
