@@ -2,7 +2,7 @@ import { HOST_PATTERNS, detectSite } from './detect.js';
 
 export const BADGE_CLEAR_ALARM = 'badge-clear';
 export const BADGE_CLEAR_MS = 3000;
-const ICON = 'icons/icon128.png';
+export const KEEPALIVE_MS = 20000;
 
 export function menuDefinitions() {
   return [
@@ -40,11 +40,13 @@ export function createBackground({ chrome, router, settings }) {
     const { message, openUrl } = outcomeToNotification(result);
     const id = `bb-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     if (openUrl) await chrome.storage.session.set({ [`notifUrl:${id}`]: openUrl });
-    await chrome.notifications.create(id, { type: 'basic', iconUrl: ICON, title: 'Bambuddy', message });
+    await chrome.notifications.create(id, { type: 'basic', iconUrl: chrome.runtime.getURL('icons/icon128.png'), title: 'Bambuddy', message });
   }
 
   async function saveUrl(url, tabId) {
     let result;
+    // Pings a trivial extension API so the service worker is not stopped mid-save.
+    const keepAlive = setInterval(() => { Promise.resolve(chrome.runtime.getPlatformInfo()).catch(() => {}); }, KEEPALIVE_MS);
     try {
       if (!url) throw new Error('No URL to save');
       const { lastFolderId } = await settings.getSettings(['lastFolderId']);
@@ -53,6 +55,8 @@ export function createBackground({ chrome, router, settings }) {
       result = await router.handle(msg);
     } catch (e) {
       result = { ok: false, error: e?.message || String(e), kind: 'unknown' };
+    } finally {
+      clearInterval(keepAlive);
     }
     try { await flashBadge(result); } catch { /* cosmetic */ }
     try { await notify(result); } catch { /* cosmetic */ }

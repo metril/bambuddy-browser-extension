@@ -59,7 +59,7 @@ test('notification click opens openUrl', async () => {
   await bg.saveUrl('https://makerworld.com/en/models/1');
   const { id, opts } = fc.calls.notifications[0];
   assert.equal(opts.message, 'Imported Benchy.3mf');
-  assert.equal(opts.iconUrl, 'icons/icon128.png');
+  assert.equal(opts.iconUrl, 'chrome-extension://fake/icons/icon128.png');
   await bg.onNotificationClicked(id);
   assert.deepEqual(fc.calls.tabsCreated, [{ url: 'http://bb/lib/1' }]);
 });
@@ -118,4 +118,33 @@ test('bulk finish: notification summary with folder link, badge, job-tick alarm 
   await bg.onNotificationClicked(fc.calls.notifications[0].id);
   assert.deepEqual(fc.calls.tabsCreated, [{ url: 'http://bb/files?folder=3' }]);
   await bg.onAlarm({ name: 'job-tick' });
+});
+
+test('saveUrl keeps the worker alive every 20s and clears the interval', async () => {
+  const real = { si: globalThis.setInterval, ci: globalThis.clearInterval };
+  const started = [];
+  const cleared = [];
+  globalThis.setInterval = (fn, ms) => { started.push({ fn, ms }); return started.length; };
+  globalThis.clearInterval = (id) => cleared.push(id);
+  try {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    bg = createBackground({ chrome: fc, settings, router: { handle: async () => { await gate; return next; } } });
+    const p = bg.saveUrl('https://makerworld.com/en/models/1');
+    await new Promise((r) => setImmediate(r));
+    assert.equal(started[0].ms, 20000);
+    assert.deepEqual(cleared, []);
+    started[0].fn();
+    assert.equal(fc.calls.platformInfo, 1);
+    release();
+    await p;
+    assert.deepEqual(cleared, [1]);
+
+    bg = createBackground({ chrome: fc, settings, router: { handle: async () => { throw new Error('x'); } } });
+    await bg.saveUrl('https://makerworld.com/en/models/1');
+    assert.deepEqual(cleared, [1, 2]);
+  } finally {
+    globalThis.setInterval = real.si;
+    globalThis.clearInterval = real.ci;
+  }
 });

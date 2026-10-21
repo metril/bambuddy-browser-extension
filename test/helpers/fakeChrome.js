@@ -37,7 +37,7 @@ function area() {
 export function createFakeChrome() {
   const local = area();
   const session = area();
-  const calls = { alarmsCreate: [], alarmsClear: [], badgeText: [], badgeColor: [], notifications: [], messages: [], menus: [], menusRemoved: 0, tabsCreated: [] };
+  const calls = { alarmsCreate: [], alarmsClear: [], badgeText: [], badgeColor: [], notifications: [], messages: [], menus: [], menusRemoved: 0, tabsCreated: [], platformInfo: 0 };
   let activeTab = null;
   return {
     calls,
@@ -65,6 +65,8 @@ export function createFakeChrome() {
     },
     runtime: {
       async sendMessage(msg) { calls.messages.push(msg); },
+      async getPlatformInfo() { calls.platformInfo++; return { os: 'linux' }; },
+      getURL: (path) => `chrome-extension://fake/${path}`,
     },
   };
 }
