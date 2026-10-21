@@ -37,7 +37,7 @@ Other options: upload mode (Auto, Stream, Buffer), max file size in MB (default 
 
 ## How uploads work
 
-For Printables and Thingiverse the service worker fetches the file and sends it to Bambuddy as a streamed multipart upload, so the whole file is not held in memory. This needs HTTP/2 to your Bambuddy server. In Auto mode, if streaming is not supported (for example HTTP/1.1 or some proxies), the extension falls back to buffering the file in memory. Stream mode never falls back; Buffer mode always buffers. Nothing is written to your Downloads folder. The max file size setting bounds per-file memory use in buffer mode.
+For Printables and Thingiverse the service worker fetches the file and sends it to Bambuddy as a streamed multipart upload, so the whole file is not held in memory. This needs HTTP/2 to your Bambuddy server. In Auto mode, if streaming is not supported (for example HTTP/1.1 or some proxies), the extension falls back to buffering the file in memory. Stream mode never falls back; Buffer mode always buffers. Some reverse proxies reject HTTP/2 request bodies that have no Content-Length (which is how streaming works) with a bare 403. Test connection probes this without side effects and remembers the result; when streaming is not usable, Auto mode uses buffered uploads from the start. If the probe was never run, the extension falls back to buffered uploads automatically after the first stream attempt fails, which costs one extra download of the first file. Nothing is written to your Downloads folder. The max file size setting bounds per-file memory use in buffer mode.
 
 ## Permissions
 

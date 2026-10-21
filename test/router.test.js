@@ -23,7 +23,7 @@ beforeEach(async () => {
     mwResolve: async () => res(fixture),
     mwImport: async (b) => { imports.push(b); return res({ library_file_id: 9, filename: 'm.3mf', folder_id: b.folder_id ?? null, was_existing: false }); },
   };
-  router = createRouter({ getClient: async () => client, settings, execInTab: null, chrome });
+  router = createRouter({ getClient: async () => client, settings, execInTab: null, chrome, probeStream: async () => 'ok' });
 });
 
 test('unknown / garbage messages', async () => {
@@ -200,6 +200,7 @@ test('save printables: premium and no compatible files record error', async () =
 });
 
 test('save printables: auto -> buffer persisted via setUploadMode', async () => {
+  await settings.setSettings({ streamSupport: 'ok' });
   const c = prClient();
   c.uploadFileStream = async () => ({ ok: false, error: 'h1', streamUnsupported: true });
   router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
@@ -477,5 +478,21 @@ test('save printables: auto + detected http/1.1 starts in buffer mode', async ()
   router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
   const r = await router.handle({ type: 'save', url: PR });
   assert.equal(r.ok, true);
+  assert.equal(streamed, false);
+});
+
+test('testConnection probes and stores streamSupport', async () => {
+  router = createRouter({ getClient: async () => client, settings, probeStream: async ({ baseUrl }) => (baseUrl === 'https://bb.example/' ? 'blocked' : 'ok') });
+  const r = await router.handle({ type: 'testConnection' });
+  assert.equal(r.streamSupport, 'blocked');
+  assert.equal(await settings.getSetting('streamSupport'), 'blocked');
+});
+
+test('save printables: auto with unknown streamSupport starts in buffer mode', async () => {
+  const c = prClient();
+  let streamed = false;
+  c.uploadFileStream = async () => { streamed = true; return { ok: true, data: { id: 1 } }; };
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
+  assert.equal((await router.handle({ type: 'save', url: PR })).ok, true);
   assert.equal(streamed, false);
 });

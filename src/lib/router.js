@@ -1,4 +1,5 @@
 // Message router. Never throws out of handle().
+import { probeStreamUpload } from './streamProbe.js';
 import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders, childFolders } from './folders.js';
@@ -33,7 +34,18 @@ export function createRouter(deps) {
     const [auth, mw] = await Promise.all([client.authStatus(), client.mwStatus()]);
     if (!auth.ok) return { ok: false, auth: null, mw: null, error: auth.error, kind: auth.kind };
     const protocol = await detectProtocol();
-    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol };
+    const streamSupport = await probeStream();
+    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol, streamSupport };
+  }
+
+  async function probeStream() {
+    try {
+      const { baseUrl, apiKey } = await settings.getSettings(['baseUrl', 'apiKey']);
+      const probe = deps.probeStream || probeStreamUpload;
+      const streamSupport = (await probe({ baseUrl, apiKey, fetchImpl: deps.fetchImpl })) || '';
+      await settings.setSetting('streamSupport', streamSupport);
+      return streamSupport;
+    } catch { return ''; }
   }
 
   async function detectProtocol() {
@@ -133,7 +145,7 @@ export function createRouter(deps) {
       await recordDiag(site, { strategy: site === 'printables' ? 'graphql' : 'none', error });
       return { ok: false, site, error, kind: 'client' };
     }
-    const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl', 'detectedProtocol']);
+    const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl', 'detectedProtocol', 'streamSupport']);
     const limit = s.maxFileMB * 1048576;
     const big = model.files.filter((f) => f.sizeHint > limit).map((f) => ({ filename: f.filename, bytes: f.sizeHint }));
     if (big.length && confirmLarge !== true) {
@@ -153,7 +165,7 @@ export function createRouter(deps) {
     };
     const out = await runUploadPipeline({
       client, files: model.files, meta: model.meta, folderId: fid,
-      options: { uploadMode: s.uploadMode === 'auto' && s.detectedProtocol === 'http/1.1' ? 'buffer' : s.uploadMode, maxFileMB: s.maxFileMB, tagUploads: s.tagUploads, fetchImpl },
+      options: { uploadMode: s.uploadMode === 'auto' && (s.streamSupport !== 'ok' || s.detectedProtocol === 'http/1.1') ? 'buffer' : s.uploadMode, maxFileMB: s.maxFileMB, tagUploads: s.tagUploads, fetchImpl },
       hooks,
     });
     const failed = out.results.find((r) => !r.ok);

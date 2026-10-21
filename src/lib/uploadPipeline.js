@@ -177,7 +177,7 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
     let r;
     try { r = await send(src, mode); } catch (e) { src.ctl.abort(); throw e; }
     if (!r.ok) src.ctl.abort();
-    if (mode === 'stream' && r.streamUnsupported) {
+    if (mode === 'stream' && !r.ok) {
       mode = 'buffer';
       hooks.setUploadMode?.('buffer');
       const again = await fetchSource(fetchImpl, files[fileIndex].url, credentials);

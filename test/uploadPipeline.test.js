@@ -81,6 +81,20 @@ test('streamUnsupported flips to buffer, re-fetches once, later files go to buff
   assert.equal(blob.size, 5);
 });
 
+test('any failed stream send (e.g. proxy 403) falls back to buffer once and stays there', async () => {
+  let streams = 0;
+  const { base, calls, fetched } = setup({
+    sources: { 'u/a': {}, 'u/b': {} },
+    client: { uploadFileStream: async () => { streams++; return { ok: false, status: 403, error: 'Forbidden', kind: 'auth' }; } },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }, { url: 'u/b', filename: 'b.stl' }] });
+  assert.equal(r.ok, true);
+  assert.deepEqual(fetched.map((f) => f.url), ['u/a', 'u/a', 'u/b']);
+  assert.equal(streams, 1);
+  assert.equal(calls.filter((c) => c[0] === 'uploadFile').length, 2);
+  assert.deepEqual(r.results.map((x) => x.mode), ['buffer', 'buffer']);
+});
+
 test('buffer mode uploads a Blob', async () => {
   const { base, calls } = setup({ sources: { 'u/a': {} } });
   base.options.uploadMode = 'buffer';
@@ -138,7 +152,10 @@ test('upload failure => ok:false; download failure too; meta/thumb failures only
   const f = s.fetched.find((x) => x.url === 'th');
   assert.equal(f.init.credentials, 'omit');
 
-  const s2 = setup({ sources: { 'u/a': {} }, client: { uploadFileStream: async () => ({ ok: false, status: 500, error: 'boom', kind: 'server' }) } });
+  const s2 = setup({ sources: { 'u/a': {} }, client: {
+    uploadFileStream: async () => ({ ok: false, status: 500, error: 'stream boom', kind: 'server' }),
+    uploadFile: async () => ({ ok: false, status: 500, error: 'boom', kind: 'server' }),
+  } });
   const r2 = await runUploadPipeline({ ...s2.base, files: [{ url: 'u/a', filename: 'a.stl' }] });
   assert.equal(r2.ok, false);
   assert.equal(r2.results[0].error, 'boom');

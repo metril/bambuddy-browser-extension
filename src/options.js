@@ -57,7 +57,7 @@ function save() {
   };
   (async () => {
     const prev = (await getSettings(['baseUrl'])).baseUrl;
-    if (prev !== baseUrl) values.detectedProtocol = '';
+    if (prev !== baseUrl) { values.detectedProtocol = ''; values.streamSupport = ''; }
     if (!(await granted)) { status(`Permission denied — the extension can't reach ${new URL(baseUrl).origin}`, true); return; }
     await setSettings(values);
     $('baseUrl').value = baseUrl;

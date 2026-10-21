@@ -36,8 +36,12 @@ test('describeConnection expired session', () => {
 test('describeConnection', () => {
   assert.deepEqual(describeConnection({ ok: false, error: 'bad key' }), ['Connection failed: bad key']);
   const l = describeConnection({ ok: true, auth: { auth_enabled: true }, mw: { has_cloud_token: true }, protocol: 'h2' });
-  assert.deepEqual(l, ['Auth: enabled', 'API key accepted', 'MakerWorld cloud: signed in', 'HTTP protocol: h2']);
+  assert.deepEqual(l, ['Auth: enabled', 'API key accepted', 'MakerWorld cloud: signed in', 'HTTP protocol: h2', 'Streaming uploads: unknown (run Test connection)']);
   const l2 = describeConnection({ ok: true, auth: { auth_enabled: false }, mw: { has_cloud_token: false } });
-  assert.deepEqual(l2, ['Auth: disabled', 'API key accepted', 'MakerWorld cloud: no cloud token']);
+  assert.deepEqual(l2, ['Auth: disabled', 'API key accepted', 'MakerWorld cloud: no cloud token', 'Streaming uploads: unknown (run Test connection)']);
+  const sl = (streamSupport) => describeConnection({ ok: true, auth: {}, mw: null, streamSupport }).at(-1);
+  assert.equal(sl('ok'), 'Streaming uploads: supported');
+  assert.match(sl('blocked'), /blocked by your proxy \(buffer mode will be used\)/);
+  assert.match(sl('h1'), /not available over HTTP\/1\.1/);
   assert.match(describeConnection({ ok: true, auth: {}, mw: null, error: 'token expired' }).join(), /sign-in expired/);
 });

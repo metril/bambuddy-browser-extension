@@ -41,5 +41,11 @@ export function describeConnection(r) {
   else if (r.mw) lines.push('MakerWorld cloud: no cloud token');
   else lines.push(/expired|401|403|sign/i.test(r.error || '') ? 'MakerWorld cloud: sign-in expired' : 'MakerWorld cloud: unavailable');
   if (r.protocol) lines.push(`HTTP protocol: ${r.protocol}`);
+  const stream = {
+    ok: 'supported',
+    blocked: 'blocked by your proxy (buffer mode will be used)',
+    h1: 'not available over HTTP/1.1 (buffer mode will be used)',
+  }[r.streamSupport] || 'unknown (run Test connection)';
+  lines.push(`Streaming uploads: ${stream}`);
   return lines;
 }
