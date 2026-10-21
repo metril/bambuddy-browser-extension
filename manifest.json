@@ -18,7 +18,7 @@
       "description": "Save the current page to Bambuddy"
     }
   },
-  "permissions": ["storage", "alarms", "contextMenus", "scripting", "notifications"],
+  "permissions": ["storage", "alarms", "contextMenus", "scripting", "notifications", "activeTab"],
   "host_permissions": [
     "https://makerworld.com/*",
     "https://www.makerworld.com/*",
