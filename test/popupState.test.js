@@ -25,6 +25,12 @@ test('folderOptions: default first, indent, preselect', () => {
   assert.deepEqual(folderOptions(null, null).length, 1);
 });
 
+test('profileOptions selects the first profile when the default matches none', () => {
+  const o = profileOptions({ defaultProfileId: 99, profiles: [{ id: 1, title: 'a' }, { id: 2, title: 'b' }] });
+  assert.deepEqual(o.map((x) => x.selected), [true, false]);
+  assert.deepEqual(profileOptions({ defaultProfileId: 1, profiles: [] }), []);
+});
+
 test('profileOptions', () => {
   const o = profileOptions({ defaultProfileId: 2, profiles: [{ id: 1, title: 'a', instanceId: 11 }, { id: 2, title: 'b' }] });
   assert.deepEqual(o.map((x) => x.selected), [false, true]);

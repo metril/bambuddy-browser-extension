@@ -27,12 +27,14 @@ export function folderOptions(folders, lastFolderId, defaultLabel = 'Default (Ma
 
 export function profileOptions(model) {
   const profiles = model?.profiles || [];
-  return profiles.map((p) => ({
+  const opts = profiles.map((p) => ({
     value: String(p.id),
     label: p.title,
     instanceId: p.instanceId ?? null,
     selected: String(p.id) === String(model.defaultProfileId),
   }));
+  if (opts.length && !opts.some((o) => o.selected)) opts[0].selected = true;
+  return opts;
 }
 
 export const SUMMARY_TTL_MS = 10 * 60 * 1000;
