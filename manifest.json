@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Bambuddy — Send to library",
+  "version": "0.1.0",
+  "description": "Send MakerWorld, Printables and Thingiverse models to your Bambuddy library.",
+  "minimum_chrome_version": "116",
+  "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "action": {
+    "default_title": "Send to Bambuddy",
+    "default_popup": "src/popup.html",
+    "default_icon": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" }
+  },
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "options_ui": { "page": "src/options.html", "open_in_tab": true },
+  "commands": {
+    "save-current-page": {
+      "suggested_key": { "default": "Alt+Shift+B" },
+      "description": "Save the current page to Bambuddy"
+    }
+  },
+  "permissions": ["storage", "alarms", "contextMenus", "scripting", "notifications"],
+  "host_permissions": [
+    "https://makerworld.com/*",
+    "https://www.makerworld.com/*",
+    "https://www.printables.com/*",
+    "https://printables.com/*",
+    "https://api.printables.com/*",
+    "https://media.printables.com/*",
+    "https://files.printables.com/*",
+    "https://www.thingiverse.com/*",
+    "https://thingiverse.com/*",
+    "https://api.thingiverse.com/*",
+    "https://cdn.thingiverse.com/*"
+  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"]
+}
