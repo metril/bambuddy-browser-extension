@@ -4,6 +4,15 @@ import { buildMultipartStream, countingTransform } from './multipartStream.js';
 
 const MB = 1024 * 1024;
 
+// A stream send may fall back to a buffered re-upload only when the proxy or HTTP/1.1 rejected the stream:
+// streamUnsupported, a non-timeout network failure, or a non-JSON 403/405/411. Never after a timeout
+// (the server may already hold the file) and never on other 4xx/5xx.
+export function shouldFallBack(r) {
+  if (r.streamUnsupported) return true;
+  if (r.kind === 'network') return !r.timedOut;
+  return [403, 405, 411].includes(r.status) && (r.data == null || typeof r.data !== 'object'); // api keeps non-JSON bodies as strings
+}
+
 const msg = (e) => (e && e.message) || String(e);
 
 export const HTML_ERROR = 'Download returned a web page instead of a file (sign-in or Cloudflare check required)';
@@ -177,7 +186,7 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
     let r;
     try { r = await send(src, mode); } catch (e) { src.ctl.abort(); throw e; }
     if (!r.ok) src.ctl.abort();
-    if (mode === 'stream' && !r.ok) {
+    if (mode === 'stream' && !r.ok && uploadMode !== 'stream' && shouldFallBack(r)) {
       mode = 'buffer';
       hooks.setUploadMode?.('buffer');
       const again = await fetchSource(fetchImpl, files[fileIndex].url, credentials);

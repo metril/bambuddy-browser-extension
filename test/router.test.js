@@ -199,14 +199,24 @@ test('save printables: premium and no compatible files record error', async () =
   assert.match((await router.handle({ type: 'save', url: PR })).error, /No Bambuddy-compatible files/);
 });
 
-test('save printables: auto -> buffer persisted via setUploadMode', async () => {
+test('testConnection: rejected key is detected via listFolders, mwStatus not run', async () => {
+  client.listFolders = async () => err('Invalid API key', 'auth');
+  let mwCalled = false;
+  client.mwStatus = async () => { mwCalled = true; return res({}); };
+  const r = await router.handle({ type: 'testConnection' });
+  assert.deepEqual([r.ok, r.kind, r.error], [false, 'auth', 'API key rejected']);
+  assert.equal(mwCalled, false);
+});
+
+test('save printables: stream fallback persists streamSupport blocked, keeps uploadMode', async () => {
   await settings.setSettings({ streamSupport: 'ok' });
   const c = prClient();
   c.uploadFileStream = async () => ({ ok: false, error: 'h1', streamUnsupported: true });
   router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
   const r = await router.handle({ type: 'save', url: PR });
   assert.equal(r.ok, true);
-  assert.equal(await settings.getSetting('uploadMode'), 'buffer');
+  assert.equal(await settings.getSetting('streamSupport'), 'blocked');
+  assert.equal(await settings.getSetting('uploadMode'), 'auto');
 });
 
 test('save printables: two files, one large -> one upload per file across both passes', async () => {
@@ -488,11 +498,27 @@ test('testConnection probes and stores streamSupport', async () => {
   assert.equal(await settings.getSetting('streamSupport'), 'blocked');
 });
 
-test('save printables: auto with unknown streamSupport starts in buffer mode', async () => {
+test('save printables: auto with unknown streamSupport probes lazily once and persists', async () => {
+  for (const [probed, expectStream] of [['ok', true], ['blocked', false]]) {
+    await settings.setSettings({ streamSupport: '' });
+    const c = prClient();
+    let streamed = false;
+    let probes = 0;
+    c.uploadFileStream = async (parts) => { streamed = true; for await (const _ of parts.stream); return { ok: true, data: { id: 1 } }; };
+    router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch(), probeStream: async () => { probes++; return probed; } });
+    assert.equal((await router.handle({ type: 'save', url: PR })).ok, true);
+    assert.equal(streamed, expectStream);
+    assert.equal(probes, 1);
+    assert.equal(await settings.getSetting('streamSupport'), probed);
+  }
+});
+
+test('save printables: explicit buffer mode never probes or streams', async () => {
+  await settings.setSettings({ uploadMode: 'buffer' });
   const c = prClient();
   let streamed = false;
   c.uploadFileStream = async () => { streamed = true; return { ok: true, data: { id: 1 } }; };
-  router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch(), probeStream: async () => { throw new Error('no'); } });
   assert.equal((await router.handle({ type: 'save', url: PR })).ok, true);
   assert.equal(streamed, false);
 });

@@ -34,6 +34,7 @@ export function originPattern(baseUrl) {
 }
 
 export function describeConnection(r) {
+  if (r && !r.ok && r.kind === 'auth' && r.error === 'API key rejected') return ['API key rejected'];
   if (!r || !r.ok) return [`Connection failed: ${r?.error || 'unknown error'}`];
   const lines = [`Auth: ${r.auth?.auth_enabled ? 'enabled' : 'disabled'}`, 'API key accepted'];
   if (r.mw?.sign_in_expired) lines.push('MakerWorld cloud: sign-in expired');

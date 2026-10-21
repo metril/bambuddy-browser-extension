@@ -29,6 +29,10 @@ test('originPattern', () => {
   assert.equal(originPattern(''), '');
 });
 
+test('describeConnection says API key rejected', () => {
+  assert.deepEqual(describeConnection({ ok: false, kind: 'auth', error: 'API key rejected' }), ['API key rejected']);
+});
+
 test('describeConnection expired session', () => {
   assert.ok(describeConnection({ ok: true, auth: {}, mw: { has_cloud_token: true, sign_in_expired: true } }).includes('MakerWorld cloud: sign-in expired'));
 });

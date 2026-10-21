@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { runUploadPipeline } from '../src/lib/uploadPipeline.js';
+import { runUploadPipeline, shouldFallBack } from '../src/lib/uploadPipeline.js';
 import { makeResponse } from './helpers/fakeFetch.js';
 
 const okR = (data) => ({ ok: true, status: 200, data, error: null, kind: null });
@@ -81,11 +81,11 @@ test('streamUnsupported flips to buffer, re-fetches once, later files go to buff
   assert.equal(blob.size, 5);
 });
 
-test('any failed stream send (e.g. proxy 403) falls back to buffer once and stays there', async () => {
+test('403 without a JSON body (proxy) falls back to buffer once and stays there', async () => {
   let streams = 0;
   const { base, calls, fetched } = setup({
     sources: { 'u/a': {}, 'u/b': {} },
-    client: { uploadFileStream: async () => { streams++; return { ok: false, status: 403, error: 'Forbidden', kind: 'auth' }; } },
+    client: { uploadFileStream: async () => { streams++; return { ok: false, status: 403, data: '<html>', error: 'Forbidden', kind: 'auth' }; } },
   });
   const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }, { url: 'u/b', filename: 'b.stl' }] });
   assert.equal(r.ok, true);
@@ -93,6 +93,69 @@ test('any failed stream send (e.g. proxy 403) falls back to buffer once and stay
   assert.equal(streams, 1);
   assert.equal(calls.filter((c) => c[0] === 'uploadFile').length, 2);
   assert.deepEqual(r.results.map((x) => x.mode), ['buffer', 'buffer']);
+});
+
+test('non-timeout network error falls back; shouldFallBack rules', async () => {
+  assert.equal(shouldFallBack({ kind: 'network' }), true);
+  assert.equal(shouldFallBack({ kind: 'network', timedOut: true }), false);
+  assert.equal(shouldFallBack({ status: 411, kind: 'client' }), true);
+  assert.equal(shouldFallBack({ status: 405, kind: 'client', data: null }), true);
+  assert.equal(shouldFallBack({ status: 413, kind: 'client', data: null }), false);
+  assert.equal(shouldFallBack({ status: 500, kind: 'server' }), false);
+  const { base, calls } = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 0, error: 'Failed to fetch', kind: 'network' }) },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, true);
+  assert.ok(names(calls).includes('uploadFile'));
+});
+
+test('413 with a JSON body is a hard failure with no re-fetch', async () => {
+  const { base, calls, fetched } = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 413, data: { detail: 'too big' }, error: 'too big', kind: 'client' }) },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.results[0].error, 'too big');
+  assert.equal(fetched.length, 1);
+  assert.ok(!names(calls).includes('setUploadMode'));
+});
+
+test('403 with a JSON body is a hard failure', async () => {
+  const { base, fetched } = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 403, data: { detail: 'no' }, error: 'no', kind: 'auth' }) },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, false);
+  assert.equal(fetched.length, 1);
+});
+
+test('timeout is a hard failure: no fallback, no re-fetch', async () => {
+  const { base, calls, fetched } = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 0, error: 'Timed out', kind: 'network', timedOut: true }) },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.results[0].error, 'Timed out');
+  assert.equal(fetched.length, 1);
+  assert.ok(!names(calls).includes('uploadFile'));
+});
+
+test('explicit stream mode never falls back', async () => {
+  const { base, calls, fetched } = setup({
+    sources: { 'u/a': {} },
+    client: { uploadFileStream: async () => ({ ok: false, status: 0, error: 'h1', kind: 'network', streamUnsupported: true }) },
+  });
+  base.options.uploadMode = 'stream';
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.results[0].error, 'h1');
+  assert.equal(fetched.length, 1);
+  assert.ok(!names(calls).includes('setUploadMode'));
 });
 
 test('buffer mode uploads a Blob', async () => {
@@ -158,7 +221,7 @@ test('upload failure => ok:false; download failure too; meta/thumb failures only
   } });
   const r2 = await runUploadPipeline({ ...s2.base, files: [{ url: 'u/a', filename: 'a.stl' }] });
   assert.equal(r2.ok, false);
-  assert.equal(r2.results[0].error, 'boom');
+  assert.equal(r2.results[0].error, 'stream boom');
 });
 
 test('thumbnail only for first file; zip uses extractZipStream with create_folder', async () => {

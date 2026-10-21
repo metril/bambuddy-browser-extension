@@ -31,8 +31,14 @@ export function createRouter(deps) {
   async function testConnection() {
     const client = await withClient();
     if (!client) return { ok: false, error: 'Not configured' };
-    const [auth, mw] = await Promise.all([client.authStatus(), client.mwStatus()]);
+    const auth = await client.authStatus();
     if (!auth.ok) return { ok: false, auth: null, mw: null, error: auth.error, kind: auth.kind };
+    // /auth/status is public, so verify the key with an authenticated call.
+    const fr = await client.listFolders();
+    if (!fr.ok) {
+      return { ok: false, auth: null, mw: null, kind: fr.kind, error: fr.kind === 'auth' ? 'API key rejected' : fr.error };
+    }
+    const mw = await client.mwStatus();
     const protocol = await detectProtocol();
     const streamSupport = await probeStream();
     return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol, streamSupport };
@@ -42,7 +48,8 @@ export function createRouter(deps) {
     try {
       const { baseUrl, apiKey } = await settings.getSettings(['baseUrl', 'apiKey']);
       const probe = deps.probeStream || probeStreamUpload;
-      const streamSupport = (await probe({ baseUrl, apiKey, fetchImpl: deps.fetchImpl })) || '';
+      const got = await probe({ baseUrl, apiKey, fetchImpl: deps.fetchImpl });
+      const streamSupport = got === 'unknown' ? '' : got || ''; // unknown is retried next time
       await settings.setSetting('streamSupport', streamSupport);
       return streamSupport;
     } catch { return ''; }
@@ -146,6 +153,7 @@ export function createRouter(deps) {
       return { ok: false, site, error, kind: 'client' };
     }
     const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl', 'detectedProtocol', 'streamSupport']);
+    if (s.uploadMode === 'auto' && s.streamSupport === '') s.streamSupport = await probeStream();
     const limit = s.maxFileMB * 1048576;
     const big = model.files.filter((f) => f.sizeHint > limit).map((f) => ({ filename: f.filename, bytes: f.sizeHint }));
     if (big.length && confirmLarge !== true) {
@@ -159,7 +167,7 @@ export function createRouter(deps) {
       confirmLarge: async () => confirmLarge === true,
       setUploadMode: async (m) => {
         try {
-          if (m === 'buffer' && s.uploadMode === 'auto') await settings.setSetting('uploadMode', 'buffer');
+          if (m === 'buffer') await settings.setSetting('streamSupport', 'blocked');
         } catch { /* best-effort */ }
       },
     };
@@ -363,7 +371,7 @@ export function createRouter(deps) {
     const job = await readJob();
     if (active) return; // startBulk began while we were reading; its job is live
     if (job?.status === 'running') await writeJob({ ...job, status: 'interrupted', finishedAt: nowMs() });
-    await clearTick();
+    if (!active) await clearTick();
   }
 
   const handlers = { testConnection, getPickerData, save, listCollections, startBulk, cancelBulk, getJob, dismissJob };
