@@ -27,6 +27,14 @@ test('probe: other responses (including JSON 403) mean blocked', async () => {
   assert.equal(await probe(async () => resp(502, 'text/html')), 'blocked');
 });
 
+test('probe: a timeout (AbortError) is blocked, other aborts stay unknown', async () => {
+  const stall = (_u, init) => new Promise((_res, rej) => {
+    init.signal.addEventListener('abort', () => rej(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+  });
+  assert.equal(await probeStreamUpload({ baseUrl: 'https://bb.example', apiKey: 'k', fetchImpl: stall, timeoutMs: 10 }), 'blocked');
+  assert.equal(await probe(async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); }), 'unknown');
+});
+
 test('probe: HTTP/1.1 TypeError means h1; other errors are unknown', async () => {
   assert.equal(await probe(async () => { throw new TypeError('ReadableStream uploading is only supported over HTTP/2 or HTTP/3'); }), 'h1');
   assert.equal(await probe(async () => { throw new TypeError('Failed to fetch'); }), 'unknown');
