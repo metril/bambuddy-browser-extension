@@ -1,0 +1,52 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm test
+
+      - name: Verify tag matches versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          m=$(node -p "JSON.parse(require('fs').readFileSync('manifest.json','utf8')).version")
+          p=$(node -p "JSON.parse(require('fs').readFileSync('package.json','utf8')).version")
+          if [ "$TAG" != "v$m" ] || [ "$TAG" != "v$p" ]; then
+            echo "::error::Tag $TAG does not match manifest.json ($m) and package.json ($p); expected v$m and v$p to equal the tag."
+            exit 1
+          fi
+          echo "VERSION=$p" >> "$GITHUB_ENV"
+
+      - run: npm run zip
+
+      - name: Checksum
+        working-directory: dist
+        run: sha256sum "bambuddy-extension-$VERSION.zip" > "bambuddy-extension-$VERSION.zip.sha256"
+
+      - name: Release notes
+        run: |
+          awk -v v="$VERSION" '
+            $0 == "## " v {f=1; next}
+            /^## / && f {exit}
+            f {print}
+          ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > notes.md
+          if ! grep -q '[^[:space:]]' notes.md; then echo "See CHANGELOG.md" > notes.md; fi
+          cat notes.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/*.zip dist/*.sha256 --title "$TAG" --notes-file notes.md

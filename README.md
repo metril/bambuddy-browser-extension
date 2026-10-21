@@ -1,5 +1,8 @@
 # Bambuddy browser extension
 
+[![CI](https://github.com/metril/bambuddy-browser-extension/actions/workflows/ci.yml/badge.svg)](https://github.com/metril/bambuddy-browser-extension/actions/workflows/ci.yml)
+[![Release](https://github.com/metril/bambuddy-browser-extension/actions/workflows/release.yml/badge.svg)](https://github.com/metril/bambuddy-browser-extension/actions/workflows/release.yml)
+
 A Chrome (Manifest V3) extension that sends models from MakerWorld, Printables and Thingiverse into your self-hosted Bambuddy library. It is not published in a store; you load it unpacked.
 
 ## Features
@@ -13,8 +16,20 @@ A Chrome (Manifest V3) extension that sends models from MakerWorld, Printables a
 
 ## Install (unpacked)
 
-1. Open `chrome://extensions` and enable Developer mode.
-2. Click "Load unpacked" and select this folder (or the unzipped release zip).
+### From a release
+
+1. Download `bambuddy-extension-<version>.zip` and its `.sha256` file from the [latest release](https://github.com/metril/bambuddy-browser-extension/releases/latest).
+2. In the download directory, verify the zip: `sha256sum -c bambuddy-extension-<version>.zip.sha256`.
+3. Unzip it to a folder you will keep (Chrome loads the extension from there).
+4. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and select that folder.
+5. Open the extension options, enter your Bambuddy URL and API key, then click "Test connection".
+
+To upgrade, unzip the new release over the same folder and press Reload on the extension card. Chrome does not auto-update unpacked extensions.
+
+### From source
+
+1. Clone this repository.
+2. Open `chrome://extensions`, enable Developer mode, click "Load unpacked" and select the repository folder.
 3. Open the extension options, enter your Bambuddy URL and API key, then click "Test connection".
 
 Chrome 116 or newer is required.
@@ -78,6 +93,10 @@ npm run zip   # needs the external zip binary
 ```
 
 `npm run zip` writes `dist/bambuddy-extension-<version>.zip` containing `manifest.json`, `src/`, `icons/`, `LICENSE`, `README.md` and `CHANGELOG.md`. `npm run icons` regenerates the icons.
+
+### Releasing
+
+Bump the version in `manifest.json` and `package.json`, add a section for it to `CHANGELOG.md`, commit, then run `git tag -a vX.Y.Z` and push the tag. The release workflow runs the tests, builds the zip and its sha256, and publishes the GitHub Release.
 
 ## License
 

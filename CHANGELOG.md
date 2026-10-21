@@ -13,6 +13,7 @@
 - Plain hostnames such as http://bambuddy:8000 no longer trigger the unencrypted-key warning.
 - A stalled stream test is treated as blocked, so buffer mode is used without re-testing on every save.
 - Test connection reminds you that write access is only verified on the first upload.
+- GitHub Actions CI and tag-driven release workflow that publishes the zip and its sha256.
 
 ## 0.1.0
 
