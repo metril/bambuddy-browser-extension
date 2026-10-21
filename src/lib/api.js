@@ -55,7 +55,7 @@ export function createClient({
     try {
       const init = {
         method,
-        headers: { 'X-API-Key': apiKey, Accept: 'application/json', ...headers },
+        headers: { ...(apiKey ? { 'X-API-Key': apiKey } : {}), Accept: 'application/json', ...headers },
         credentials: 'omit',
         signal: ctl.signal,
       };
@@ -119,6 +119,13 @@ export function createClient({
     return clean(r);
   }
 
+  const zipQuery = ({ folderId, createFolderFromZip = false, preserveStructure = true, generateStlThumbnails = true } = {}) => ({
+    folder_id: folderId,
+    preserve_structure: preserveStructure,
+    create_folder_from_zip: createFolderFromZip,
+    generate_stl_thumbnails: generateStlThumbnails,
+  });
+
   return {
     request,
     upload,
@@ -130,7 +137,7 @@ export function createClient({
       request('POST', '/makerworld/import', {
         body: { source_type: 'makerworld', model_id, profile_id, instance_id, folder_id },
       }),
-    mwRecent: (limit) => request('GET', '/makerworld/recent', { query: { limit } }),
+    mwRecent: (limit) => request('GET', '/makerworld/recent-imports', { query: { limit } }),
     uploadFile: (blob, filename, { folderId, generateStlThumbnails } = {}) =>
       upload('/library/files', { field: 'file', blob, filename }, {
         folder_id: folderId,
@@ -139,9 +146,10 @@ export function createClient({
     // parts: { field, filename, contentType, stream, boundary } (built by multipartStream.js)
     uploadFileStream: (parts, { folderId } = {}) =>
       uploadStream('/library/files', parts, { folder_id: folderId }),
-    // Opaque passthrough: body shape of POST /library/files/extract-zip is unverified.
-    // `body` is sent as JSON, `query` as the query string.
-    extractZip: ({ body, query } = {}) => request('POST', '/library/files/extract-zip', { body, query }),
+    // Multipart zip upload; returns { extracted, folders_created, files[], errors[] }.
+    extractZip: (blob, filename, opts) =>
+      upload('/library/files/extract-zip', { field: 'file', blob, filename }, zipQuery(opts)),
+    extractZipStream: (parts, opts) => uploadStream('/library/files/extract-zip', parts, zipQuery(opts)),
     updateFile: (id, patch) => request('PUT', `/library/files/${encodeURIComponent(id)}`, { body: patch }),
     setThumbnail: (id, blob, filename) =>
       upload(`/library/files/${encodeURIComponent(id)}/preview-thumbnail`, { field: 'thumbnail', blob, filename }),

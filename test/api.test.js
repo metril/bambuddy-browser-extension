@@ -135,7 +135,7 @@ test('typed helpers hit the right routes', async () => {
   const got = f.calls.map((x) => `${x.init.method} ${x.url.replace('https://bb.test/api/v1', '')}`);
   assert.deepEqual(got, [
     'GET /auth/status', 'GET /makerworld/status', 'POST /makerworld/resolve', 'POST /makerworld/import',
-    'GET /makerworld/recent?limit=5', 'PUT /library/files/7', 'POST /library/files/7/preview-thumbnail',
+    'GET /makerworld/recent-imports?limit=5', 'PUT /library/files/7', 'POST /library/files/7/preview-thumbnail',
     'GET /library/folders', 'POST /library/folders', 'GET /library/tags', 'POST /library/tags',
     'POST /library/tags/bulk-assign',
   ]);
@@ -145,8 +145,26 @@ test('typed helpers hit the right routes', async () => {
   assert.deepEqual(JSON.parse(f.calls[11].init.body), { file_ids: [1], tag_ids: [2], action: 'add' });
 });
 
-test('extractZip passthrough', async () => {
+test('extractZip is multipart with zip query params', async () => {
+  const { f, c } = mk([{ json: {} }, { json: {} }]);
+  await c.extractZip(new Blob(['z']), 'a.zip', { folderId: 2 });
+  const { url, init } = f.calls[0];
+  assert.equal(url, 'https://bb.test/api/v1/library/files/extract-zip?folder_id=2&preserve_structure=true&create_folder_from_zip=false&generate_stl_thumbnails=true');
+  assert.equal(init.body.get('file').name, 'a.zip');
+  assert.equal(init.headers['Content-Type'], undefined);
+  await c.extractZip(new Blob(['z']), 'a.zip', { createFolderFromZip: true, preserveStructure: false, generateStlThumbnails: false });
+  assert.equal(f.calls[1].url, 'https://bb.test/api/v1/library/files/extract-zip?preserve_structure=false&create_folder_from_zip=true&generate_stl_thumbnails=false');
+});
+
+test('extractZipStream streams with duplex half', async () => {
   const { f, c } = mk([{ json: {} }]);
-  await c.extractZip({ body: { file_id: 1 }, query: { folder_id: 2 } });
-  assert.equal(f.calls[0].url, 'https://bb.test/api/v1/library/files/extract-zip?folder_id=2');
+  await c.extractZipStream({ stream: new ReadableStream(), boundary: 'B' }, { folderId: 4 });
+  assert.equal(f.calls[0].url, 'https://bb.test/api/v1/library/files/extract-zip?folder_id=4&preserve_structure=true&create_folder_from_zip=false&generate_stl_thumbnails=true');
+  assert.equal(f.calls[0].init.duplex, 'half');
+});
+
+test('no X-API-Key header when key unset', async () => {
+  const f = createFakeFetch([{ json: {} }]);
+  await createClient({ baseUrl: 'https://bb.test', fetchImpl: f }).request('GET', '/x');
+  assert.equal('X-API-Key' in f.calls[0].init.headers, false);
 });
