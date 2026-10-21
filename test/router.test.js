@@ -461,3 +461,21 @@ test('runBulk reads the collections page once', async () => {
   assert.equal(reads, 1);
   assert.ok(base);
 });
+
+test('testConnection reports and stores protocol', async () => {
+  router = createRouter({ getClient: async () => client, settings, getProtocol: async (p) => (p === 'https://bb.example/api/v1/' ? 'http/1.1' : '') });
+  const r = await router.handle({ type: 'testConnection' });
+  assert.equal(r.protocol, 'http/1.1');
+  assert.equal(await settings.getSetting('detectedProtocol'), 'http/1.1');
+});
+
+test('save printables: auto + detected http/1.1 starts in buffer mode', async () => {
+  await settings.setSettings({ detectedProtocol: 'http/1.1' });
+  const c = prClient();
+  let streamed = false;
+  c.uploadFileStream = async () => { streamed = true; return { ok: false, error: 'x', streamUnsupported: true }; };
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
+  const r = await router.handle({ type: 'save', url: PR });
+  assert.equal(r.ok, true);
+  assert.equal(streamed, false);
+});

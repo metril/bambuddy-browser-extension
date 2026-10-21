@@ -32,7 +32,20 @@ export function createRouter(deps) {
     if (!client) return { ok: false, error: 'Not configured' };
     const [auth, mw] = await Promise.all([client.authStatus(), client.mwStatus()]);
     if (!auth.ok) return { ok: false, auth: null, mw: null, error: auth.error, kind: auth.kind };
-    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error };
+    const protocol = await detectProtocol();
+    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol };
+  }
+
+  async function detectProtocol() {
+    try {
+      const { baseUrl } = await settings.getSettings(['baseUrl']);
+      const prefix = `${String(baseUrl || '').replace(/\/+$/, '')}/api/v1/`;
+      const get = deps.getProtocol || ((p) => globalThis.performance?.getEntriesByType?.('resource')
+        .filter((e) => e.name.startsWith(p) && e.nextHopProtocol).pop()?.nextHopProtocol);
+      const protocol = (await get(prefix)) || '';
+      if (protocol) await settings.setSetting('detectedProtocol', protocol);
+      return protocol;
+    } catch { return ''; }
   }
 
   async function getPickerData({ url, tabId }) {
@@ -120,7 +133,7 @@ export function createRouter(deps) {
       await recordDiag(site, { strategy: site === 'printables' ? 'graphql' : 'none', error });
       return { ok: false, site, error, kind: 'client' };
     }
-    const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl']);
+    const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl', 'detectedProtocol']);
     const limit = s.maxFileMB * 1048576;
     const big = model.files.filter((f) => f.sizeHint > limit).map((f) => ({ filename: f.filename, bytes: f.sizeHint }));
     if (big.length && confirmLarge !== true) {
@@ -140,7 +153,7 @@ export function createRouter(deps) {
     };
     const out = await runUploadPipeline({
       client, files: model.files, meta: model.meta, folderId: fid,
-      options: { uploadMode: s.uploadMode, maxFileMB: s.maxFileMB, tagUploads: s.tagUploads, fetchImpl },
+      options: { uploadMode: s.uploadMode === 'auto' && s.detectedProtocol === 'http/1.1' ? 'buffer' : s.uploadMode, maxFileMB: s.maxFileMB, tagUploads: s.tagUploads, fetchImpl },
       hooks,
     });
     const failed = out.results.find((r) => !r.ok);

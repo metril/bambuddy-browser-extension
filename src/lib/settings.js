@@ -8,6 +8,7 @@ export const DEFAULTS = {
   maxFileMB: 250,
   bulkConcurrency: 2,
   tagUploads: true,
+  detectedProtocol: '', // from the last connection test, e.g. "h2" | "http/1.1"
   diagnostics: {}, // keyed by site: { at, strategy, error }
 };
 
