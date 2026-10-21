@@ -10,6 +10,15 @@ test('HOST_PATTERNS equals manifest host_permissions', () => {
   assert.deepEqual(Object.keys(SITES), ['makerworld', 'printables', 'thingiverse']);
 });
 
+test('isModelPage accepts BCP-47 locale prefixes', () => {
+  assert.deepEqual(isModelPage('https://makerworld.com/zh-hans/models/123'), { site: 'makerworld', id: '123' });
+  assert.deepEqual(isModelPage('https://makerworld.com/pt-br/models/123-x'), { site: 'makerworld', id: '123' });
+  assert.deepEqual(isModelPage('https://www.printables.com/en-US/model/9-x'), { site: 'printables', id: '9' });
+  assert.equal(isModelPage('https://makerworld.com/toolong/models/123'), null);
+  assert.equal(isCollectionsPage('https://makerworld.com/zh-hant/@bob/collections'), true);
+  assert.equal(isCollectionDetailPage('https://makerworld.com/zh-hans/collections/5-x'), true);
+});
+
 test('detectSite', () => {
   assert.equal(detectSite('https://www.makerworld.com/en/models/1'), 'makerworld');
   assert.equal(detectSite('https://printables.com/model/1'), 'printables');

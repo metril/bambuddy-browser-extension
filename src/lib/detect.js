@@ -35,15 +35,17 @@ export const SITES = {
 /** Single source for context-menu URL patterns (equals manifest host_permissions). */
 export const HOST_PATTERNS = Object.values(SITES).flatMap((s) => s.hostPatterns);
 
-const LOCALE = '(?:[a-z]{2}(?:-[a-z]{2})?\\/)?';
+// BCP-47-ish locale prefix: en, pt-br, en-US, zh-hans.
+const LOCALE_SRC = '[a-z]{2,3}(?:-[a-z0-9]{2,4})*';
+const LOCALE = `(?:${LOCALE_SRC}\\/)?`;
 const MODEL_PATHS = {
   makerworld: new RegExp(`^\\/${LOCALE}models\\/(\\d+)(?:-[^/?#]*)?\\/?$`, 'i'),
   printables: new RegExp(`^\\/${LOCALE}model\\/(\\d+)(?:-[^/?#]*)?\\/?$`, 'i'),
   thingiverse: /^\/thing:(\d+)(?:\/.*)?$/i,
 };
-const COLLECTIONS_PATH = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?@[^/]+\/collections(?:\/.*)?$/i;
+const COLLECTIONS_PATH = new RegExp(`^\\/${LOCALE}@[^/]+\\/collections(?:\\/.*)?$`, 'i');
 // Plural-only on purpose: never tolerate a singular "/collection/{id}".
-const COLLECTION_DETAIL_PATH = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?collections\/(\d+)(?:-[^/?#]*)?\/?$/i;
+const COLLECTION_DETAIL_PATH = new RegExp(`^\\/${LOCALE}collections\\/(\\d+)(?:-[^/?#]*)?\\/?$`, 'i');
 
 function parse(url) {
   try {
