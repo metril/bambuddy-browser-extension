@@ -7,7 +7,7 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "icons": "node scripts/make-icons.mjs",
-    "zip": "mkdir -p dist && zip -r dist/bambuddy-extension-$npm_package_version.zip manifest.json src icons LICENSE README.md CHANGELOG.md"
+    "zip": "mkdir -p dist && rm -f dist/bambuddy-extension-$npm_package_version.zip && zip -r dist/bambuddy-extension-$npm_package_version.zip manifest.json src icons LICENSE README.md CHANGELOG.md"
   },
   "license": "MIT"
 }
