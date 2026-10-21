@@ -11,6 +11,7 @@
   .banner { background: #fff4d6; border: 1px solid #e0c36a; padding: 6px; border-radius: 4px; margin: 6px 0; color: #4a3b00; }
   .hint { color: #8a5a00; }
   .err { color: #b00020; }
+  .files { margin: 6px 0; padding-left: 18px; word-break: break-all; }
   .muted { color: #666; }
 </style>
 </head>
@@ -21,7 +22,20 @@
   <a id="open-options" href="#">Open Options</a>
 </section>
 <section id="view-unsupported" hidden><p>Open a MakerWorld, Printables or Thingiverse model page to import it.</p></section>
-<section id="view-other" hidden><p>Printables/Thingiverse support arrives in a later task.</p></section>
+<section id="view-other" hidden><p>Thingiverse support arrives in a later task.</p></section>
+<section id="view-printables" hidden>
+  <div class="row"><img id="pr-thumb" alt="" hidden><div><strong id="pr-title"></strong><div id="pr-designer" class="muted"></div></div></div>
+  <div id="pr-premium" class="banner" hidden>Printables Club / paid model - download it in Printables and upload manually.</div>
+  <div id="pr-nofiles" class="banner" hidden>No Bambuddy-compatible files (.3mf/.stl) on this model.</div>
+  <ul id="pr-files" class="files"></ul>
+  <label>Folder <select id="pr-folder"></select></label>
+  <button id="pr-import" type="button">Import to Bambuddy</button>
+  <div id="pr-confirm" class="banner" hidden>
+    <span id="pr-confirm-text"></span>
+    <button id="pr-confirm-yes" type="button">Import anyway</button>
+    <button id="pr-confirm-no" type="button">Cancel</button>
+  </div>
+</section>
 <section id="view-makerworld" hidden>
   <div class="row"><img id="thumb" alt="" hidden><div><strong id="title"></strong><div id="designer" class="muted"></div></div></div>
   <div id="paid" class="hint" hidden>Paid model - import may fail</div>
@@ -34,10 +48,14 @@
   <label>Folder <select id="folder"></select></label>
   <button id="import" type="button">Import to Bambuddy</button>
 </section>
-<section id="view-busy" hidden class="muted">Working...</section>
+<section id="view-busy" hidden class="muted">
+  <div id="busy-text">Working...</div>
+  <div id="busy-progress"></div>
+</section>
 <section id="view-done" hidden>
   <p><strong id="done-name"></strong></p>
   <p id="done-existing" hidden>Already in library</p>
+  <ul id="done-warnings" class="hint"></ul>
   <a id="done-open" href="#" target="_blank" rel="noopener">Open in Bambuddy</a>
 </section>
 <section id="view-error" hidden>

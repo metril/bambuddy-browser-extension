@@ -6,12 +6,12 @@ export function deriveState({ settings, tabUrl }) {
   if (!isConfigured(settings)) return { state: 'setup' };
   const page = isModelPage(tabUrl);
   if (!page) return { state: 'unsupported' };
-  return { state: page.site === 'makerworld' ? 'makerworld' : 'other', site: page.site, id: page.id };
+  return { state: page.site === 'makerworld' || page.site === 'printables' ? page.site : 'other', site: page.site, id: page.id };
 }
 
-export function folderOptions(folders, lastFolderId) {
+export function folderOptions(folders, lastFolderId, defaultLabel = 'Default (MakerWorld folder)') {
   const sel = lastFolderId == null ? '' : String(lastFolderId);
-  const opts = [{ value: '', label: 'Default (MakerWorld folder)', selected: sel === '' }];
+  const opts = [{ value: '', label: defaultLabel, selected: sel === '' }];
   let found = false;
   for (const f of folders || []) {
     const selected = String(f.id) === sel;

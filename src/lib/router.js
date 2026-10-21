@@ -2,6 +2,8 @@
 import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders } from './folders.js';
+import { fetchPrintablesModel, parsePrint, selectFiles, buildPrintQuery, parseModelId, GRAPHQL_URL } from './adapters/printables.js';
+import { runUploadPipeline } from './uploadPipeline.js';
 
 const fail = (r) => ({ ok: false, error: r.error, kind: r.kind });
 const openUrlFor = (baseUrl, folderId) => {
@@ -33,17 +35,93 @@ export function createRouter(deps) {
     const [fr, { lastFolderId }] = await Promise.all([client.listFolders(), settings.getSettings(['lastFolderId'])]);
     if (!fr.ok) return fail(fr);
     const folders = flattenFolders(fr.data);
+    if (site === 'printables' && page) return printablesPicker(url, folders, lastFolderId);
     if (site !== 'makerworld' || !page) return { ok: true, site, folders, lastFolderId };
     const rr = await client.mwResolve(url);
     if (!rr.ok) return fail(rr);
     return { ok: true, site, model: toPickerModel(rr.data), folders, lastFolderId };
   }
 
-  async function save({ url, profileId, instanceId, folderId }) {
+  const fetchImpl = (...a) => (deps.fetchImpl || globalThis.fetch)(...a);
+
+  async function recordDiag(site, entry) {
+    try {
+      const { diagnostics } = await settings.getSettings(['diagnostics']);
+      await settings.setSetting('diagnostics', { ...(diagnostics || {}), [site]: { at: Date.now(), ...entry } });
+    } catch { /* diagnostics are best-effort */ }
+  }
+
+  async function printablesPicker(url, folders, lastFolderId) {
+    try {
+      const id = parseModelId(url);
+      const res = await fetchImpl(GRAPHQL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(buildPrintQuery(id)),
+        credentials: 'include',
+      });
+      const print = parsePrint(await res.json());
+      const files = selectFiles(print).map((f) => f.name);
+      return {
+        ok: true, site: 'printables',
+        model: { title: print.title, designer: print.designer, thumbnail: print.thumbnailUrl, files, premium: print.premium },
+        folders, lastFolderId,
+      };
+    } catch (e) {
+      await recordDiag('printables', { strategy: 'graphql', error: String(e?.message || e) });
+      return { ok: false, error: String(e?.message || e), kind: 'client' };
+    }
+  }
+
+  async function savePrintables({ url, folderId, confirmLarge }, client) {
+    const fid = folderId === '' ? null : folderId ?? null;
+    let model;
+    try {
+      model = await fetchPrintablesModel(url, { fetchImpl });
+      if (!model.files.length) throw new Error('No Bambuddy-compatible files (.3mf/.stl) on this model');
+    } catch (e) {
+      const error = String(e?.message || e);
+      await recordDiag('printables', { strategy: 'graphql', error });
+      return { ok: false, site: 'printables', error, kind: 'client' };
+    }
+    const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl']);
+    let needsConfirmLarge;
+    const hooks = {
+      onProgress: (p) => deps.onProgress?.(p),
+      confirmLarge: async (info) => {
+        if (confirmLarge === true) return true;
+        needsConfirmLarge = info;
+        return false;
+      },
+      setUploadMode: async (m) => {
+        if (m === 'buffer' && s.uploadMode === 'auto') await settings.setSetting('uploadMode', 'buffer');
+      },
+    };
+    const out = await runUploadPipeline({
+      client, files: model.files, meta: model.meta, folderId: fid,
+      options: { uploadMode: s.uploadMode, maxFileMB: s.maxFileMB, tagUploads: s.tagUploads, fetchImpl },
+      hooks,
+    });
+    const failed = out.results.find((r) => !r.ok);
+    await recordDiag('printables', { strategy: 'graphql', ...(out.ok ? {} : { error: failed?.error || 'Upload failed' }) });
+    await settings.setSetting('lastFolderId', fid);
+    const res = {
+      ok: out.ok && !needsConfirmLarge && (out.fileIds.length > 0 || out.results.some((r) => r.ok)),
+      site: 'printables', fileIds: out.fileIds, results: out.results, warnings: out.warnings, skipped: out.skipped,
+      openUrl: openUrlFor(s.baseUrl, fid),
+    };
+    if (!res.ok) res.error = needsConfirmLarge ? `File is larger than ${s.maxFileMB} MB` : failed?.error || 'Nothing was imported';
+    if (needsConfirmLarge) res.needsConfirmLarge = needsConfirmLarge;
+    return res;
+  }
+
+  async function save(msg) {
+    const { url, profileId, instanceId, folderId } = msg;
     const client = await withClient();
     if (!client) return { ok: false, error: 'Not configured' };
     const page = isModelPage(url);
     if (!page) return { ok: false, error: 'Not a model page' };
+    if (page.site === 'printables') return savePrintables(msg, client);
     if (page.site !== 'makerworld') return { ok: false, error: 'Not supported yet', site: page.site };
     let pid = profileId ?? null;
     let iid = instanceId ?? null;

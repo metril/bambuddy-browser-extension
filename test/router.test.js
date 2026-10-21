@@ -59,8 +59,8 @@ test('getPickerData makerworld', async () => {
 });
 
 test('getPickerData other site and error', async () => {
-  const r = await router.handle({ type: 'getPickerData', url: 'https://www.printables.com/model/9-x' });
-  assert.equal(r.site, 'printables');
+  const r = await router.handle({ type: 'getPickerData', url: 'https://www.thingiverse.com/thing:9' });
+  assert.equal(r.site, 'thingiverse');
   assert.equal(r.model, undefined);
   client.mwResolve = async () => err('nope', 'notfound');
   assert.deepEqual(await router.handle({ type: 'getPickerData', url: MW }), { ok: false, error: 'nope', kind: 'notfound' });
@@ -98,10 +98,112 @@ test('save: auth error propagates, lastFolderId untouched', async () => {
 });
 
 test('save: other site / non-model / thrown error', async () => {
-  assert.deepEqual(await router.handle({ type: 'save', url: 'https://www.printables.com/model/9-x' }), { ok: false, error: 'Not supported yet', site: 'printables' });
+  assert.deepEqual(await router.handle({ type: 'save', url: 'https://www.thingiverse.com/thing:9' }), { ok: false, error: 'Not supported yet', site: 'thingiverse' });
   assert.equal((await router.handle({ type: 'save', url: 'https://example.com' })).ok, false);
   client.mwResolve = async () => { throw new Error('boom'); };
   const r = await router.handle({ type: 'save', url: MW });
   assert.equal(r.ok, false);
   assert.equal(r.error, 'boom');
+});
+
+// ---- Printables ----
+const PR = 'https://www.printables.com/model/3161-benchy';
+const prPrint = { data: { print: { id: '3161', name: 'Benchy', premium: false, user: { publicUsername: 'cr' }, image: { filePath: 'i.jpg' }, license: { name: 'CC' }, stls: [{ id: '1', name: 'b.stl', fileSize: 3 }], gcodes: [], otherFiles: [] } } };
+const jsonRes = (j) => ({ ok: true, status: 200, headers: new Headers(), json: async () => j });
+
+function prFetch(opts = {}) {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push(url);
+    if (url.includes('graphql')) {
+      const q = JSON.parse(init.body).query;
+      if (q.startsWith('query')) return jsonRes(opts.print || prPrint);
+      return jsonRes({ data: { getDownloadLink: { ok: true, output: { link: 'https://files.printables.com/b.stl' } } } });
+    }
+    if (url === 'https://files.printables.com/b.stl') {
+      const headers = new Headers(opts.bytes ? { 'content-length': String(opts.bytes) } : {});
+      return { ok: true, status: 200, headers, body: new Response(new Uint8Array([1, 2, 3])).body };
+    }
+    return { ok: true, status: 200, headers: new Headers(), blob: async () => new Blob([new Uint8Array(2)], { type: 'image/jpeg' }) };
+  };
+  f.calls = calls;
+  return f;
+}
+
+function prClient() {
+  const c = {
+    ...client,
+    uploads: [],
+    uploadFile: async (blob, name, o) => { c.uploads.push({ name, o }); return res({ id: 42 }); },
+    updateFile: async () => res({}),
+    setThumbnail: async () => res({}),
+    listTags: async () => res([]),
+    createTag: async () => res({ id: 1 }),
+    bulkAssignTags: async () => res({}),
+  };
+  return c;
+}
+
+test('getPickerData printables', async () => {
+  const f = prFetch();
+  router = createRouter({ getClient: async () => client, settings, fetchImpl: f });
+  const r = await router.handle({ type: 'getPickerData', url: PR });
+  assert.equal(r.ok, true);
+  assert.equal(r.site, 'printables');
+  assert.deepEqual(r.model, { title: 'Benchy', designer: 'cr', thumbnail: 'https://media.printables.com/i.jpg', files: ['b.stl'], premium: false });
+  assert.equal(r.folders[0].name, 'x');
+});
+
+test('save printables: pipeline, lastFolderId, diagnostics, progress', async () => {
+  const f = prFetch();
+  const c = prClient();
+  const prog = [];
+  await settings.setSettings({ uploadMode: 'buffer' });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: f, onProgress: (p) => prog.push(p) });
+  const r = await router.handle({ type: 'save', url: PR, folderId: 5 });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.fileIds, [42]);
+  assert.equal(c.uploads[0].name, 'b.stl');
+  assert.equal(c.uploads[0].o.folderId, 5);
+  assert.equal(r.openUrl, 'https://bb.example/files?folder=5');
+  assert.equal(await settings.getSetting('lastFolderId'), 5);
+  const d = (await settings.getSetting('diagnostics')).printables;
+  assert.equal(d.strategy, 'graphql');
+  assert.equal(d.error, undefined);
+  assert.ok(prog.length > 0);
+});
+
+test('save printables: needsConfirmLarge round-trip', async () => {
+  const f = prFetch({ bytes: 300 * 1024 * 1024 });
+  const c = prClient();
+  await settings.setSettings({ uploadMode: 'buffer' });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: f });
+  const r1 = await router.handle({ type: 'save', url: PR, folderId: null });
+  assert.equal(r1.ok, false);
+  assert.equal(r1.needsConfirmLarge.filename, 'b.stl');
+  assert.equal(r1.needsConfirmLarge.bytes, 300 * 1024 * 1024);
+  assert.equal(c.uploads.length, 0);
+  const r2 = await router.handle({ type: 'save', url: PR, folderId: null, confirmLarge: true });
+  assert.equal(r2.needsConfirmLarge, undefined);
+  assert.equal(c.uploads.length, 1);
+  assert.equal(r2.ok, true);
+});
+
+test('save printables: premium and no compatible files record error', async () => {
+  router = createRouter({ getClient: async () => prClient(), settings, fetchImpl: prFetch({ print: { data: { print: { ...prPrint.data.print, premium: true } } } }) });
+  const r = await router.handle({ type: 'save', url: PR });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /paid model/);
+  assert.match((await settings.getSetting('diagnostics')).printables.error, /paid/);
+  router = createRouter({ getClient: async () => prClient(), settings, fetchImpl: prFetch({ print: { data: { print: { ...prPrint.data.print, stls: [] } } } }) });
+  assert.match((await router.handle({ type: 'save', url: PR })).error, /No Bambuddy-compatible files/);
+});
+
+test('save printables: auto -> buffer persisted via setUploadMode', async () => {
+  const c = prClient();
+  c.uploadFileStream = async () => ({ ok: false, error: 'h1', streamUnsupported: true });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: prFetch() });
+  const r = await router.handle({ type: 'save', url: PR });
+  assert.equal(r.ok, true);
+  assert.equal(await settings.getSetting('uploadMode'), 'buffer');
 });

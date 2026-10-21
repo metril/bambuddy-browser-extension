@@ -9,7 +9,7 @@ test('deriveState', () => {
   assert.equal(deriveState({ settings: ok, tabUrl: 'https://example.com/' }).state, 'unsupported');
   assert.equal(deriveState({ settings: ok, tabUrl: undefined }).state, 'unsupported');
   assert.deepEqual(deriveState({ settings: ok, tabUrl: 'https://makerworld.com/en/models/123-x#profileId-5' }), { state: 'makerworld', site: 'makerworld', id: '123' });
-  assert.equal(deriveState({ settings: ok, tabUrl: 'https://www.printables.com/model/9-x' }).state, 'other');
+  assert.equal(deriveState({ settings: ok, tabUrl: 'https://www.printables.com/model/9-x' }).state, 'printables');
 });
 
 test('folderOptions: default first, indent, preselect', () => {

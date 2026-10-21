@@ -5,6 +5,7 @@ import { createRouter } from './lib/router.js';
 const router = createRouter({
   settings,
   chrome,
+  onProgress: (p) => { chrome.runtime.sendMessage({ type: 'progress', ...p }).catch(() => {}); },
   execInTab: (opts) => chrome.scripting.executeScript(opts),
   async getClient() {
     const s = await settings.getSettings(['baseUrl', 'apiKey']);
