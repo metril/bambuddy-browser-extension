@@ -53,7 +53,7 @@ export async function fetchFavoritesInPage(listId, handle, offsets) {
   return pages;
 }
 
-async function readPage(execInTab, tabId) {
+export async function readCollectionsPage(execInTab, tabId) {
   try { return (await execInTab(tabId, readCollectionsDataInPage, [])) ?? null; } catch { return null; }
 }
 
@@ -62,7 +62,7 @@ const withTitle = (designs) => designs.map((d) => (d && !d.title && d.name ? { .
 
 /** -> [{listId,title,count,isDefault,slug}]; a collection detail page yields just itself. */
 export async function readCollections(execInTab, tabId) {
-  const page = await readPage(execInTab, tabId);
+  const page = await readCollectionsPage(execInTab, tabId);
   if (!page) throw new Error("Couldn't read this page. Reload it and try again.");
   const { nextData, routePageProps, href } = page;
   const detail = parseCollectionDetailUrl(href);
@@ -86,8 +86,8 @@ async function viaDataRoute(execInTab, tabId, buildId, pathname) {
 }
 
 /** -> { items, unreadable }. Data route (anchor path, then constructed path), then favorites API. */
-export async function readCollectionItems(execInTab, tabId, entry) {
-  const page = await readPage(execInTab, tabId);
+export async function readCollectionItems(execInTab, tabId, entry, preloadedPage) {
+  const page = preloadedPage ?? (await readCollectionsPage(execInTab, tabId));
   if (!page) return { items: [], unreadable: true };
   const { nextData, href } = page;
   const buildId = buildIdOf(nextData);

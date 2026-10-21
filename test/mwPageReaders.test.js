@@ -111,3 +111,14 @@ test('in-page readers run against a fake DOM', async () => {
     assert.deepEqual(await fetchDataRouteInPage('B', '/en/collections/1'), { pageProps: { x: 1 } });
   } finally { delete globalThis.fetch; delete globalThis.document; delete globalThis.location; }
 });
+
+test('readCollectionItems uses a preloaded page without re-reading', async () => {
+  const log = [];
+  const exec = fakeExec({ collectAnchorPathnamesInPage: [], fetchDataRouteInPage: { pageProps: { designs: [D(1), D(2)] } } }, log);
+  const { readCollectionsPage } = await import('../src/lib/mwPageReaders.js');
+  const page = listPage().readCollectionsDataInPage;
+  const r = await readCollectionItems(exec, 1, entry, page);
+  assert.equal(r.items.length, 2);
+  assert.ok(!log.some((l) => l.name === 'readCollectionsDataInPage'));
+  assert.equal(typeof readCollectionsPage, 'function');
+});

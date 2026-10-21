@@ -3,7 +3,7 @@ import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders, childFolders } from './folders.js';
 import { folderNameFromTitle } from './filenames.js';
-import { readCollections, readCollectionItems } from './mwPageReaders.js';
+import { readCollections, readCollectionItems, readCollectionsPage } from './mwPageReaders.js';
 import { createBulkJob } from './bulkJob.js';
 import { fetchPrintablesModel, fetchPrint, selectFiles, parseModelId } from './adapters/printables.js';
 import { fetchThingiverseModel, readPageInTab, parsePageMeta, CF_ERROR } from './adapters/thingiverse.js';
@@ -227,35 +227,34 @@ export function createRouter(deps) {
     if (hit) { created.set(key, hit.id); return { id: hit.id }; }
     const cr = await client.createFolder(name, parentId ?? undefined);
     if (!cr.ok) return { error: cr.error || 'Could not create folder' };
-    created.set(key, cr.data?.id);
-    return { id: cr.data?.id };
+    if (cr.data?.id == null) return { error: 'Bambuddy did not return a folder id' };
+    created.set(key, cr.data.id);
+    return { id: cr.data.id };
   }
 
   function makeRun(client) {
-    return async (item) => {
-      const rr = await client.mwResolve(item.url);
+    return async (item, signal) => {
+      const rr = await client.mwResolve(item.url, { signal });
       if (!rr.ok) return { outcome: 'failed', error: rr.error || 'Resolve failed' };
       if ((rr.data?.already_imported_library_ids || []).length) return { outcome: 'skipped' };
-      const ir = await client.mwImport({ model_id: Number(rr.data.model_id ?? item.externalId), folder_id: item.folderId });
+      const ir = await client.mwImport({ model_id: Number(rr.data.model_id ?? item.externalId), folder_id: item.folderId }, { signal });
       if (!ir.ok) return { outcome: 'failed', error: ir.error || 'Import failed' };
       if (ir.data?.was_existing) return { outcome: 'skipped' };
       return { outcome: 'imported', fileId: ir.data?.library_file_id ?? null };
     };
   }
 
-  async function runBulk(client, ctl, { tabId, collections, parentFolderId, concurrency }) {
-    const s = await settings.getSettings(['baseUrl', 'bulkConcurrency']);
-    const conc = Math.min(3, Math.max(1, Number(concurrency ?? s.bulkConcurrency) || 2));
-    const parent = parentFolderId === '' ? null : parentFolderId ?? null;
-    const meta = { tabId, collections, parentFolderId: parent, concurrency: conc, openUrl: null };
+  async function runBulk(client, ctl, { tabId, collections }, meta, blank, baseUrl) {
     const pre = [];
     const view = (st) => ({ ...st, failed: [...pre, ...st.failed], ...meta });
-    const blank = { status: 'running', phase: 'preparing', total: 0, done: 0, skipped: 0, failed: [], imported: [], startedAt: nowMs(), finishedAt: null };
-    await writeJob(view(blank));
-    let final;
+    let chain = Promise.resolve();
+    const persist = (st) => { chain = chain.then(() => writeJob(view(st))); return chain; };
+    const { concurrency: conc, parentFolderId: parent } = meta;
+    let final = null;
     try {
       const fr = await client.listFolders();
       if (!fr.ok) throw new Error(fr.error || 'Could not list folders');
+      const page = await readCollectionsPage(deps.execInTab, tabId);
       const created = new Map();
       const items = [];
       for (const c of collections) {
@@ -263,27 +262,28 @@ export function createRouter(deps) {
         const name = folderNameFromTitle(c.title);
         const f = await resolveFolder(client, fr.data, created, name, parent);
         if (f.error) { pre.push({ title: c.title, url: '', error: `Folder "${name}": ${f.error}` }); continue; }
-        if (meta.openUrl == null && f.id != null) meta.openUrl = openUrlFor(s.baseUrl, f.id);
-        const got = await readCollectionItems(deps.execInTab, tabId, { listId: c.listId, title: c.title, slug: c.slug, count: c.count });
+        if (meta.openUrl == null) meta.openUrl = openUrlFor(baseUrl, f.id);
+        const got = page
+          ? await readCollectionItems(deps.execInTab, tabId, { listId: c.listId, title: c.title, slug: c.slug, count: c.count }, page)
+          : { items: [], unreadable: true };
         if (got.unreadable) { pre.push({ title: c.title, url: '', error: 'Could not read this collection from the page' }); continue; }
         for (const it of got.items) items.push({ ...it, folderId: f.id });
       }
       if (ctl.cancelled) {
-        final = view({ ...blank, status: 'cancelled', finishedAt: nowMs() });
+        final = { ...blank, status: 'cancelled', finishedAt: nowMs() };
       } else {
-        ctl.job = createBulkJob({
-          items, concurrency: conc, run: makeRun(client), now: nowMs,
-          onUpdate: (st) => { writeJob(view(st)); },
-        });
-        final = view(await ctl.job.start());
+        ctl.job = createBulkJob({ items, concurrency: conc, run: makeRun(client), now: nowMs, onUpdate: (st) => { final = st; persist(st); } });
+        final = await ctl.job.start();
       }
     } catch (e) {
       pre.push({ title: '', url: '', error: String(e?.message || e) });
-      final = view({ ...blank, status: 'done', finishedAt: nowMs() });
+      final = { ...blank, status: 'done', finishedAt: nowMs() };
     }
-    await writeJob(final);
+    // A normal finish was already persisted by the job's final emit.
+    if (!ctl.job) await persist(final);
+    await chain;
     await clearTick();
-    try { await deps.onJobFinished?.(final); } catch { /* notification is cosmetic */ }
+    try { await deps.onJobFinished?.(view(final)); } catch { /* notification is cosmetic */ }
   }
 
   async function startBulk(msg) {
@@ -295,8 +295,19 @@ export function createRouter(deps) {
       if (!client) { active = null; return { ok: false, error: 'Not configured' }; }
       if (!deps.execInTab || msg.tabId == null) { active = null; return { ok: false, error: 'No MakerWorld tab', kind: 'client' }; }
       if (!Array.isArray(msg.collections) || !msg.collections.length) { active = null; return { ok: false, error: 'No collections selected' }; }
+      const s = await settings.getSettings(['baseUrl', 'bulkConcurrency']);
+      const parent = msg.parentFolderId === '' ? null : msg.parentFolderId ?? null;
+      const conc = Math.min(3, Math.max(1, Number(msg.concurrency ?? s.bulkConcurrency) || 2));
+      const t = nowMs();
+      const meta = {
+        jobId: `${t}-${Math.random().toString(36).slice(2, 8)}`, tabId: msg.tabId, collections: msg.collections,
+        parentFolderId: parent, concurrency: conc, openUrl: null,
+      };
+      const blank = { status: 'running', phase: 'preparing', total: 0, done: 0, skipped: 0, failed: [], imported: [], startedAt: t, finishedAt: null };
+      // Persist before replying so an immediate getJob never sees a stale/missing job.
+      await writeJob({ ...blank, ...meta });
       try { await deps.chrome?.alarms?.create(JOB_ALARM, { periodInMinutes: 0.5 }); } catch { /* keep-alive is best-effort */ }
-      ctl.promise = runBulk(client, ctl, msg).catch(() => {}).finally(() => { active = null; });
+      ctl.promise = runBulk(client, ctl, msg, meta, blank, s.baseUrl).catch(() => {}).finally(() => { active = null; });
       return { ok: true };
     } catch (e) {
       active = null;
@@ -325,6 +336,7 @@ export function createRouter(deps) {
   async function markInterrupted() {
     if (active) return;
     const job = await readJob();
+    if (active) return; // startBulk began while we were reading; its job is live
     if (job?.status === 'running') await writeJob({ ...job, status: 'interrupted', finishedAt: nowMs() });
     await clearTick();
   }

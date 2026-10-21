@@ -409,3 +409,55 @@ test('dismissJob clears a finished job but not a running one', async () => {
   assert.equal((await router.handle({ type: 'dismissJob' })).ok, true);
   assert.equal((await router.handle({ type: 'getJob' })).job, null);
 });
+
+test('job state exists immediately after startBulk resolves', async () => {
+  bulkRouter();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  client.listFolders = async () => { await gate; return res([]); };
+  assert.equal((await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS })).ok, true);
+  const { job } = await router.handle({ type: 'getJob' });
+  assert.equal(job.status, 'running');
+  assert.ok(job.jobId);
+  release();
+  await router.idle();
+});
+
+test('markInterrupted does not clobber a job started while it was reading', async () => {
+  bulkRouter();
+  await chrome.storage.session.set({ job: { status: 'running', jobId: 'stale' } });
+  const mi = router.markInterrupted();
+  await router.handle({ type: 'startBulk', tabId: 1, collections: [COLLS[0]] });
+  await mi;
+  await router.idle();
+  const { job } = await router.handle({ type: 'getJob' });
+  assert.notEqual(job.jobId, 'stale');
+  assert.equal(job.status, 'done');
+});
+
+test('createFolder ok without id fails that collection; signal reaches the api', async () => {
+  bulkRouter();
+  client.createFolder = async () => res({});
+  await router.handle({ type: 'startBulk', tabId: 1, collections: [COLLS[1]] });
+  await router.idle();
+  assert.match((await router.handle({ type: 'getJob' })).job.failed[0].error, /folder id/);
+
+  bulkRouter();
+  const sigs = [];
+  client.mwResolve = async (u, o) => { sigs.push(o?.signal); return res({ model_id: 1, already_imported_library_ids: [1] }); };
+  await router.handle({ type: 'startBulk', tabId: 1, collections: [COLLS[0]] });
+  await router.idle();
+  assert.ok(sigs.length && sigs.every((x) => x instanceof AbortSignal));
+});
+
+test('runBulk reads the collections page once', async () => {
+  bulkRouter();
+  let reads = 0;
+  const base = router;
+  const exec = async (t, f, a) => { if (f.name === 'readCollectionsDataInPage') reads++; return typeof bulkPage[f.name] === 'function' ? bulkPage[f.name](...a) : bulkPage[f.name]; };
+  router = createRouter({ getClient: async () => client, settings, chrome, execInTab: exec });
+  await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS });
+  await router.idle();
+  assert.equal(reads, 1);
+  assert.ok(base);
+});

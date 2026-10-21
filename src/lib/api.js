@@ -132,10 +132,11 @@ export function createClient({
     uploadStream,
     authStatus: () => request('GET', '/auth/status'),
     mwStatus: () => request('GET', '/makerworld/status'),
-    mwResolve: (url) => request('POST', '/makerworld/resolve', { body: { url } }),
-    mwImport: ({ model_id, profile_id, instance_id, folder_id }) =>
+    mwResolve: (url, { signal } = {}) => request('POST', '/makerworld/resolve', { body: { url }, signal }),
+    mwImport: ({ model_id, profile_id, instance_id, folder_id }, { signal } = {}) =>
       request('POST', '/makerworld/import', {
         body: { source_type: 'makerworld', model_id, profile_id, instance_id, folder_id },
+        signal,
       }),
     mwRecent: (limit) => request('GET', '/makerworld/recent-imports', { query: { limit } }),
     uploadFile: (blob, filename, { folderId, generateStlThumbnails } = {}) =>

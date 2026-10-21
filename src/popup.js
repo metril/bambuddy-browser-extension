@@ -85,9 +85,9 @@ async function initPrintables() {
   $('pr-premium').hidden = !m.premium;
   $('pr-nofiles').hidden = tv || m.premium || m.files.length > 0;
   $('pr-import').hidden = !tv && (m.premium || !m.files.length);
-  $('pr-import').addEventListener('click', () => { confirmLarge = false; savePrintables().catch((e) => showError({ error: e.message })); });
-  $('pr-confirm-yes').addEventListener('click', () => { confirmLarge = true; savePrintables().catch((e) => showError({ error: e.message })); });
-  $('pr-confirm-no').addEventListener('click', () => { $('pr-confirm').hidden = true; $('pr-import').hidden = false; });
+  $('pr-import').onclick = () => { confirmLarge = false; savePrintables().catch((e) => showError({ error: e.message })); };
+  $('pr-confirm-yes').onclick = () => { confirmLarge = true; savePrintables().catch((e) => showError({ error: e.message })); };
+  $('pr-confirm-no').onclick = () => { $('pr-confirm').hidden = true; $('pr-import').hidden = false; };
   show('printables');
 }
 
@@ -136,7 +136,7 @@ function watchJob() {
   if (jobWatching) return;
   jobWatching = true;
   chrome.storage.onChanged.addListener((changes) => {
-    if (changes.job?.newValue && !$('view-job').hidden) renderJob(changes.job.newValue);
+    if (changes.job?.newValue && (!$('view-job').hidden || !$('view-busy').hidden)) renderJob(changes.job.newValue);
   });
 }
 
@@ -167,7 +167,7 @@ async function initCollections(single) {
   if (single) {
     $('one-title').textContent = collections[0]?.title || '';
     fill($('one-parent'), parentOpts);
-    $('one-import').addEventListener('click', () => startBulk(selectedCollections(collections, collections.map((c) => c.listId)), $('one-parent').value));
+    $('one-import').onclick = () => startBulk(selectedCollections(collections, collections.map((c) => c.listId)), $('one-parent').value);
     return show('collection');
   }
   $('col-list').replaceChildren(...collectionChoices(collections).map((c) => {
@@ -177,10 +177,10 @@ async function initCollections(single) {
     return l;
   }));
   fill($('col-parent'), parentOpts);
-  $('col-import').addEventListener('click', () => {
+  $('col-import').onclick = () => {
     const ids = [...$('col-list').querySelectorAll('input:checked')].map((i) => i.value);
     startBulk(selectedCollections(collections, ids), $('col-parent').value);
-  });
+  };
   show('collections');
 }
 
@@ -192,8 +192,8 @@ async function normalInit(st) {
 }
 
 async function init() {
-  $('open-options').addEventListener('click', openOptions);
-  $('error-options').addEventListener('click', openOptions);
+  $('open-options').onclick = openOptions;
+  $('error-options').onclick = openOptions;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabUrl = tab?.url || '';
   tabId = tab?.id;
@@ -201,14 +201,17 @@ async function init() {
   baseUrl = settings.baseUrl;
   const st = deriveState({ settings, tabUrl });
   if (st.state !== 'setup') {
-    $('job-cancel').addEventListener('click', () => send({ type: 'cancelBulk' }));
-    $('job-dismiss').addEventListener('click', () => { send({ type: 'dismissJob' }).catch(() => {}); normalInit(st).catch((e) => showError({ error: e.message })); });
-    $('job-resume').addEventListener('click', async () => {
+    $('job-cancel').onclick = () => send({ type: 'cancelBulk' });
+    $('job-dismiss').onclick = () => { send({ type: 'dismissJob' }).catch(() => {}); normalInit(st).catch((e) => showError({ error: e.message })); };
+    $('job-resume').onclick = async () => {
       const job = (await send({ type: 'getJob' }))?.job;
-      const useTab = st.state === 'collections' || st.state === 'collection' ? tabId : job?.tabId;
-      tabId = useTab;
+      if (!(st.state === 'collections' || st.state === 'collection')) {
+        const alive = job?.tabId != null && (await chrome.tabs.get(job.tabId).then((t) => /makerworld\.com/.test(t?.url || ''), () => false));
+        if (!alive) { $('job-text').textContent = 'Open your MakerWorld collections page and press Resume'; return; }
+        tabId = job.tabId;
+      }
       startBulk(job?.collections || [], job?.parentFolderId);
-    });
+    };
     const g = await send({ type: 'getJob' }).catch(() => null);
     if (g?.job && jobView(g.job).kind !== 'none') { watchJob(); renderJob(g.job); return; }
   }
@@ -233,9 +236,9 @@ async function initMakerworld() {
   fill($('folder'), folderOptions(r.folders, r.lastFolderId));
   $('dup').hidden = !m.alreadyImported.length;
   $('import').hidden = m.alreadyImported.length > 0;
-  $('dup-open').addEventListener('click', () => chrome.tabs.create({ url: `${baseUrl.replace(/\/+$/, '')}/files` }));
-  $('dup-anyway').addEventListener('click', () => doSave().catch((e) => showError({ error: e.message })));
-  $('import').addEventListener('click', () => doSave().catch((e) => showError({ error: e.message })));
+  $('dup-open').onclick = () => chrome.tabs.create({ url: `${baseUrl.replace(/\/+$/, '')}/files` });
+  $('dup-anyway').onclick = () => doSave().catch((e) => showError({ error: e.message }));
+  $('import').onclick = () => doSave().catch((e) => showError({ error: e.message }));
   show('makerworld');
 }
 
