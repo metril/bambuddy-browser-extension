@@ -83,6 +83,7 @@ test('save: explicit profile skips resolve; no folder -> /files', async () => {
   const r = await router.handle({ type: 'save', url: MW, profileId: 3, folderId: null });
   assert.equal(r.ok, true);
   assert.equal(imports[0].profile_id, 3);
+  assert.strictEqual(imports[0].model_id, 200000);
   assert.equal('folder_id' in imports[0], false);
   assert.equal(r.openUrl, 'https://bb.example/files');
   assert.equal(await settings.getSetting('lastFolderId'), null);

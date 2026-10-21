@@ -37,7 +37,12 @@ async function doSave() {
     folderId: $('folder').value ? Number($('folder').value) : null,
   };
   show('busy');
-  const r = await send(msg);
+  let r;
+  try {
+    r = await send(msg);
+  } catch (e) {
+    return showError({ error: e?.message || 'Extension background unavailable' });
+  }
   if (!r?.ok) return showError(r);
   $('done-name').textContent = r.filename || '';
   $('done-existing').hidden = !r.wasExisting;
@@ -54,7 +59,12 @@ async function init() {
   baseUrl = settings.baseUrl;
   const st = deriveState({ settings, tabUrl });
   if (st.state !== 'makerworld') return show(st.state);
-  const r = await send({ type: 'getPickerData', url: tabUrl });
+  let r;
+  try {
+    r = await send({ type: 'getPickerData', url: tabUrl });
+  } catch (e) {
+    return showError({ error: e?.message || 'Extension background unavailable' });
+  }
   if (!r?.ok) return showError(r);
   const m = r.model;
   $('title').textContent = m.title || '';
@@ -67,8 +77,8 @@ async function init() {
   $('dup').hidden = !m.alreadyImported.length;
   $('import').hidden = m.alreadyImported.length > 0;
   $('dup-open').addEventListener('click', () => chrome.tabs.create({ url: `${baseUrl.replace(/\/+$/, '')}/files` }));
-  $('dup-anyway').addEventListener('click', doSave);
-  $('import').addEventListener('click', doSave);
+  $('dup-anyway').addEventListener('click', () => doSave().catch((e) => showError({ error: e.message })));
+  $('import').addEventListener('click', () => doSave().catch((e) => showError({ error: e.message })));
   show('makerworld');
 }
 

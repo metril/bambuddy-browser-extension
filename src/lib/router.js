@@ -47,7 +47,7 @@ export function createRouter(deps) {
     if (page.site !== 'makerworld') return { ok: false, error: 'Not supported yet', site: page.site };
     let pid = profileId ?? null;
     let iid = instanceId ?? null;
-    let modelId = page.id;
+    let modelId = Number(page.id);
     if (pid == null) {
       const rr = await client.mwResolve(url);
       if (!rr.ok) return fail(rr);
