@@ -21,7 +21,7 @@ Chrome 116 or newer is required.
 
 ## Configure
 
-1. In Bambuddy, go to Settings, API Keys and create a key with the "Manage library" scope.
+1. In Bambuddy, go to Settings, API Keys and create a key with library management enabled (the `can_manage_library` scope, on by default).
 2. Paste the key and your Bambuddy URL (for example `https://bambuddy.example.com`) into the options page. The extension asks for permission to reach that origin when you save.
 3. For MakerWorld, Bambu Cloud must be signed in inside Bambuddy, because Bambuddy does the download.
 
@@ -33,11 +33,11 @@ Other options: upload mode (Auto, Stream, Buffer), max file size in MB (default 
 - Printables model page: the popup lists the .3mf and .stl files; choose a folder and import. Club or paid models are not importable. Files over the size limit ask for confirmation first.
 - Thingiverse Thing page: import from the popup. You must be able to view the page normally in that browser (see "Verified site behaviour").
 - MakerWorld collection pages: the popup lists collections to import into a parent folder. Progress shows in the popup; use Cancel, or Resume after an interruption.
-- Any supported page or link: use the context menu or Alt+Shift+B instead of the popup. Results appear as a notification; click it to open the item in Bambuddy.
+- Any supported page or link: use the context menu or Alt+Shift+B instead of the popup. Results appear as a notification; click it to open the folder in Bambuddy's File Manager. "Already in library" notifications have no link.
 
 ## How uploads work
 
-For Printables and Thingiverse the service worker fetches the file and sends it to Bambuddy as a streamed multipart upload, so the whole file is not held in memory. This needs HTTP/2 to your Bambuddy server. In Auto mode, if streaming is not supported (for example HTTP/1.1 or some proxies), the extension falls back to buffering the file in memory. Stream mode never falls back; Buffer mode always buffers. Some reverse proxies reject HTTP/2 request bodies that have no Content-Length (which is how streaming works) with a bare 403. Test connection probes this without side effects and remembers the result; when streaming is not usable, Auto mode uses buffered uploads from the start. If the probe was never run, the extension falls back to buffered uploads automatically after the first stream attempt fails, which costs one extra download of the first file. Nothing is written to your Downloads folder. The max file size setting bounds per-file memory use in buffer mode.
+For Printables and Thingiverse the service worker fetches the file and sends it to Bambuddy as a streamed multipart upload, so the whole file is not held in memory. This needs HTTP/2 to your Bambuddy server. In Auto mode the extension probes streaming on Test connection (or lazily on the first upload if it was never tested) and remembers the result. It falls back to a buffered upload, which costs one extra download of the file, only when the stream is rejected by a proxy (for example a bare 403, 405 or 411 without a JSON body) or is unsupported over HTTP/1.1. It never falls back after a timeout or on other server errors. Explicit Stream mode never falls back, and explicit Buffer mode never streams. Nothing is written to your Downloads folder. The max file size setting bounds per-file memory use in buffer mode.
 
 ## Permissions
 
@@ -59,7 +59,7 @@ For Printables and Thingiverse the service worker fetches the file and sends it 
 
 ## Troubleshooting
 
-- "Check your API key": the key is wrong or lacks the "Manage library" scope. Create a new one and re-test.
+- "Check your API key": the key is wrong or lacks library management (`can_manage_library`). Create a new one and re-test.
 - Test connection fails: check the URL, that the server is reachable from the browser, and that you granted the origin permission.
 - MakerWorld import fails: confirm Bambu Cloud is signed in inside Bambuddy; paid models may not be downloadable.
 - "Download returned a web page instead of a file": sign in to the site, or pass its Cloudflare check in a tab, then retry.
