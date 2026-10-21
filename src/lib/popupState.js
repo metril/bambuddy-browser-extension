@@ -8,7 +8,8 @@ export function deriveState({ settings, tabUrl }) {
   if (isCollectionDetailPage(tabUrl)) return { state: 'collection' };
   const page = isModelPage(tabUrl);
   if (!page) return { state: 'unsupported' };
-  return { state: ['makerworld', 'printables', 'thingiverse'].includes(page.site) ? page.site : 'other', site: page.site, id: page.id };
+  if (!['makerworld', 'printables', 'thingiverse'].includes(page.site)) return { state: 'unsupported' };
+  return { state: page.site, site: page.site, id: page.id };
 }
 
 export function folderOptions(folders, lastFolderId, defaultLabel = 'Default (MakerWorld folder)') {

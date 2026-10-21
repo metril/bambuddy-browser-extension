@@ -14,6 +14,7 @@ const links = [
   { href: '/download:11', text: 'dup.stl' },
   { href: '/download:12', text: 'Download' },
   { href: '/download:13', text: 'Download', hints: ['x', 'Model 2.3mf'] },
+  { href: '/download:14', text: 'Download', hints: ['Base v2.stl'] },
 ];
 
 test('parsePageMeta: JSON-LD wins, dedupes links', () => {
@@ -29,7 +30,8 @@ test('parsePageMeta: JSON-LD wins, dedupes links', () => {
   assert.deepEqual(m.files, [
     { id: '11', name: 'a.stl', url: 'https://www.thingiverse.com/download:11' },
     { id: '12', name: 'file-12', url: 'https://www.thingiverse.com/download:12', deriveName: true },
-    { id: '13', name: '2.3mf', url: 'https://www.thingiverse.com/download:13' },
+    { id: '13', name: 'Model 2.3mf', url: 'https://www.thingiverse.com/download:13' },
+    { id: '14', name: 'Base v2.stl', url: 'https://www.thingiverse.com/download:14' },
   ]);
 });
 

@@ -12,6 +12,14 @@ export function parseThingId(url) {
 
 const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const FILE_TOKEN = /[^\s"'<>]+\.(?:3mf|stl|step|stp|obj|zip)\b/i;
+const EXT_END = /\.(?:3mf|stl|step|stp|obj|zip)$/i;
+// Prefer the whole hint when it ends in an allowed extension ("Base v2.stl"); otherwise find a token inside it.
+const fileName = (t) => {
+  const h = String(t || '').trim();
+  if (EXT_END.test(h)) return h;
+  const m = FILE_TOKEN.exec(h);
+  return m ? m[0] : null;
+};
 const TITLE_SUFFIX = /\s+by\s+(.+?)\s+-\s+Thingiverse\s*$/i;
 
 export function parsePageMeta(pageData) {
@@ -29,8 +37,8 @@ export function parsePageMeta(pageData) {
     const m = /\/download:(\d+)/.exec(l?.href || '');
     if (!m || seen.has(m[1])) continue;
     seen.add(m[1]);
-    const tok = [...(l.hints || []), l.text].map((t) => FILE_TOKEN.exec(String(t || ''))).find(Boolean);
-    const f = { id: m[1], name: tok ? tok[0] : `file-${m[1]}`, url: `https://www.thingiverse.com/download:${m[1]}` };
+    const tok = [...(l.hints || []), l.text].map(fileName).find(Boolean);
+    const f = { id: m[1], name: tok || `file-${m[1]}`, url: `https://www.thingiverse.com/download:${m[1]}` };
     if (!tok) f.deriveName = true;
     files.push(f);
   }

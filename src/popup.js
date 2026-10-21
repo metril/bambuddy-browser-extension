@@ -2,7 +2,7 @@ import { getSettings } from './lib/settings.js';
 import { deriveState, folderOptions, profileOptions, collectionChoices, selectedCollections, jobView } from './lib/popupState.js';
 
 const $ = (id) => document.getElementById(id);
-const VIEWS = ['loading', 'setup', 'unsupported', 'other', 'makerworld', 'printables', 'busy', 'done', 'error', 'collections', 'collection', 'job'];
+const VIEWS = ['loading', 'setup', 'unsupported', 'makerworld', 'printables', 'busy', 'done', 'error', 'collections', 'collection', 'job'];
 const show = (name) => VIEWS.forEach((v) => { $(`view-${v}`).hidden = v !== name; });
 const send = (msg) => chrome.runtime.sendMessage(msg);
 const openOptions = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
