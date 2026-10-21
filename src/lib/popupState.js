@@ -37,6 +37,22 @@ export function profileOptions(model) {
   return opts;
 }
 
+const SKIP_REASONS = { unsupported: 'unsupported file type', 'too-large': 'larger than the size limit' };
+
+/** Printables/Thingiverse save result -> done-view model. Skipped files are listed once (not also as warnings). */
+export function summarizeUploadResult(r) {
+  const results = r?.results || [];
+  const skipped = (r?.skipped || []).map((s) => ({ filename: s.filename, reason: SKIP_REASONS[s.reason] || s.reason || 'skipped' }));
+  const skipLines = new Set((r?.skipped || []).map((s) => `Skipped ${s.filename}:`));
+  return {
+    imported: results.filter((x) => x.ok && x.duplicateOf == null).map((x) => ({ filename: x.filename })),
+    duplicates: results.filter((x) => x.ok && x.duplicateOf != null).map((x) => ({ filename: x.filename, duplicateOf: x.duplicateOf })),
+    failed: results.filter((x) => !x.ok).map((x) => ({ filename: x.filename, error: x.error })),
+    skipped,
+    warnings: (r?.warnings || []).filter((w) => ![...skipLines].some((p) => String(w).startsWith(p))),
+  };
+}
+
 export const SUMMARY_TTL_MS = 10 * 60 * 1000;
 
 /** Collections -> checklist rows. */

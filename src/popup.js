@@ -1,5 +1,6 @@
 import { getSettings } from './lib/settings.js';
-import { deriveState, folderOptions, profileOptions, collectionChoices, selectedCollections, jobView } from './lib/popupState.js';
+import { isCollectionsPage, isCollectionDetailPage } from './lib/detect.js';
+import { deriveState, folderOptions, profileOptions, collectionChoices, selectedCollections, jobView, summarizeUploadResult } from './lib/popupState.js';
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ['loading', 'setup', 'unsupported', 'makerworld', 'printables', 'busy', 'done', 'error', 'collections', 'collection', 'job'];
@@ -42,8 +43,17 @@ function showDone(r) {
   $('done-name').textContent = r.filename || (r.fileIds ? `${r.fileIds.length} file(s) imported` : '');
   $('done-existing').hidden = !r.wasExisting;
   $('done-open').href = r.openUrl;
-  const w = [...(r.warnings || []), ...(r.results || []).filter((x) => !x.ok).map((x) => `${x.filename}: ${x.error}`)];
-  $('done-warnings').replaceChildren(...w.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
+  const s = summarizeUploadResult(r);
+  const li = (textContent) => Object.assign(document.createElement('li'), { textContent });
+  $('done-results').replaceChildren(
+    ...s.imported.map((x) => li(x.filename)),
+    ...s.duplicates.map((x) => li(`${x.filename} - Already in library`)),
+  );
+  $('done-warnings').replaceChildren(
+    ...s.warnings.map(li),
+    ...s.failed.map((x) => li(`${x.filename}: ${x.error}`)),
+    ...s.skipped.map((x) => li(`Skipped ${x.filename}: ${x.reason}`)),
+  );
   show('done');
 }
 
@@ -111,6 +121,8 @@ async function doSave() {
   $('done-name').textContent = r.filename || '';
   $('done-existing').hidden = !r.wasExisting;
   $('done-open').href = r.openUrl;
+  $('done-results').replaceChildren();
+  $('done-warnings').replaceChildren();
   show('done');
 }
 
@@ -206,7 +218,7 @@ async function init() {
     $('job-resume').onclick = async () => {
       const job = (await send({ type: 'getJob' }))?.job;
       if (!(st.state === 'collections' || st.state === 'collection')) {
-        const alive = job?.tabId != null && (await chrome.tabs.get(job.tabId).then((t) => /makerworld\.com/.test(t?.url || ''), () => false));
+        const alive = job?.tabId != null && (await chrome.tabs.get(job.tabId).then((t) => isCollectionsPage(t?.url) || isCollectionDetailPage(t?.url), () => false));
         if (!alive) { $('job-text').textContent = 'Open your MakerWorld collections page and press Resume'; return; }
         tabId = job.tabId;
       }

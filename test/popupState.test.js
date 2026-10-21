@@ -38,6 +38,26 @@ test('profileOptions', () => {
   assert.deepEqual(profileOptions(null), []);
 });
 
+import { summarizeUploadResult } from '../src/lib/popupState.js';
+
+test('summarizeUploadResult buckets results, flags duplicates, lists skipped once', () => {
+  const s = summarizeUploadResult({
+    results: [
+      { filename: 'a.3mf', ok: true, id: 1 },
+      { filename: 'b.stl', ok: true, id: 2, duplicateOf: 7 },
+      { filename: 'c.stl', ok: false, error: 'boom' },
+    ],
+    skipped: [{ filename: 'd.gcode', reason: 'unsupported' }, { filename: 'e.stl', reason: 'too-large' }],
+    warnings: ['Skipped d.gcode: unsupported file type', 'Skipped e.stl: larger than 1 MB', 'Thumbnail failed: x'],
+  });
+  assert.deepEqual(s.imported, [{ filename: 'a.3mf' }]);
+  assert.deepEqual(s.duplicates, [{ filename: 'b.stl', duplicateOf: 7 }]);
+  assert.deepEqual(s.failed, [{ filename: 'c.stl', error: 'boom' }]);
+  assert.deepEqual(s.skipped, [{ filename: 'd.gcode', reason: 'unsupported file type' }, { filename: 'e.stl', reason: 'larger than the size limit' }]);
+  assert.deepEqual(s.warnings, ['Thumbnail failed: x']);
+  assert.deepEqual(summarizeUploadResult(undefined), { imported: [], duplicates: [], failed: [], skipped: [], warnings: [] });
+});
+
 import { collectionChoices, selectedCollections, jobView } from '../src/lib/popupState.js';
 
 test('deriveState recognises collection pages', () => {
