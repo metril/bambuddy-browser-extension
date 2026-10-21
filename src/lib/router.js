@@ -3,7 +3,7 @@ import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders } from './folders.js';
 import { fetchPrintablesModel, fetchPrint, selectFiles, parseModelId } from './adapters/printables.js';
-import { fetchThingiverseModel, readPageInTab, parsePageMeta } from './adapters/thingiverse.js';
+import { fetchThingiverseModel, readPageInTab, parsePageMeta, CF_ERROR } from './adapters/thingiverse.js';
 import { runUploadPipeline } from './uploadPipeline.js';
 
 const fail = (r) => ({ ok: false, error: r.error, kind: r.kind });
@@ -137,6 +137,7 @@ export function createRouter(deps) {
       hooks,
     });
     const failed = out.results.find((r) => !r.ok);
+    if (failed && site === 'thingiverse' && /web page instead of a file/.test(failed.error || '')) failed.error = CF_ERROR;
     await recordDiag(site, { strategy: model.strategy, ...(out.ok ? {} : { error: failed?.error || 'Upload failed' }) });
     const res = {
       ok: out.ok && out.results.some((r) => r.ok),

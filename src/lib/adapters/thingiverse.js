@@ -11,6 +11,7 @@ export function parseThingId(url) {
 }
 
 const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+const FILE_TOKEN = /[^\s"'<>]+\.(?:3mf|stl|step|stp|obj|zip)\b/i;
 const TITLE_SUFFIX = /\s+by\s+(.+?)\s+-\s+Thingiverse\s*$/i;
 
 export function parsePageMeta(pageData) {
@@ -28,7 +29,10 @@ export function parsePageMeta(pageData) {
     const m = /\/download:(\d+)/.exec(l?.href || '');
     if (!m || seen.has(m[1])) continue;
     seen.add(m[1]);
-    files.push({ id: m[1], name: str(l.text) || `file-${m[1]}`, url: `https://www.thingiverse.com/download:${m[1]}` });
+    const tok = [...(l.hints || []), l.text].map((t) => FILE_TOKEN.exec(String(t || ''))).find(Boolean);
+    const f = { id: m[1], name: tok ? tok[0] : `file-${m[1]}`, url: `https://www.thingiverse.com/download:${m[1]}` };
+    if (!tok) f.deriveName = true;
+    files.push(f);
   }
   return { title, designer, thumbnailUrl, files };
 }
@@ -45,7 +49,8 @@ export function readPageInTab() {
   }
   const fileLinks = [];
   for (const a of document.querySelectorAll('a[href*="/download:"]')) {
-    fileLinks.push({ href: a.href || a.getAttribute('href'), text: (a.getAttribute('data-filename') || a.textContent || '').trim() });
+    const hints = ['data-filename', 'download', 'title', 'aria-label'].map((k) => a.getAttribute(k)).filter(Boolean);
+    fileLinks.push({ href: a.href || a.getAttribute('href'), text: (a.getAttribute('data-filename') || a.textContent || '').trim(), hints });
   }
   return { title: document.title, jsonLd, og, fileLinks };
 }
@@ -70,13 +75,19 @@ export async function fetchThingiverseModel(url, { fetchImpl = globalThis.fetch,
   try {
     const res = await fetchImpl(zipUrl, { method: 'GET', credentials: 'include', redirect: 'follow' });
     const ct = res?.headers?.get?.('content-type');
-    const ok = res?.ok && !looksLikeHtml(ct);
+    let ok = !!res?.ok && !looksLikeHtml(ct);
+    if (ok && !ct) {
+      // No content-type: only accept if the first chunk carries the zip magic.
+      let first = null;
+      try { first = (await res.body?.getReader?.().read())?.value; } catch { /* ignore */ }
+      ok = !!first && first[0] === 0x50 && first[1] === 0x4b && first[2] === 3 && first[3] === 4;
+    }
     try { await res?.body?.cancel(); } catch { /* ignore */ }
     if (ok) return { meta, files: [{ url: zipUrl, filename: sanitizeFilename(`${title}.zip`), kind: 'zip' }], strategy: 'zip' };
   } catch { /* fall through to links */ }
 
   if (pm.files.length) {
-    return { meta, files: pm.files.map((f) => ({ url: f.url, filename: sanitizeFilename(f.name) })), strategy: 'links' };
+    return { meta, files: pm.files.map((f) => ({ url: f.url, filename: sanitizeFilename(f.name), ...(f.deriveName ? { deriveName: true } : {}) })), strategy: 'links' };
   }
   throw new Error(CF_ERROR);
 }

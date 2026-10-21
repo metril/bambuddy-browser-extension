@@ -12,7 +12,8 @@ test('parseThingId', () => {
 const links = [
   { href: 'https://www.thingiverse.com/download:11', text: 'a.stl' },
   { href: '/download:11', text: 'dup.stl' },
-  { href: '/download:12', text: '' },
+  { href: '/download:12', text: 'Download' },
+  { href: '/download:13', text: 'Download', hints: ['x', 'Model 2.3mf'] },
 ];
 
 test('parsePageMeta: JSON-LD wins, dedupes links', () => {
@@ -27,7 +28,8 @@ test('parsePageMeta: JSON-LD wins, dedupes links', () => {
   assert.equal(m.thumbnailUrl, 'https://i/1.jpg');
   assert.deepEqual(m.files, [
     { id: '11', name: 'a.stl', url: 'https://www.thingiverse.com/download:11' },
-    { id: '12', name: 'file-12', url: 'https://www.thingiverse.com/download:12' },
+    { id: '12', name: 'file-12', url: 'https://www.thingiverse.com/download:12', deriveName: true },
+    { id: '13', name: '2.3mf', url: 'https://www.thingiverse.com/download:13' },
   ]);
 });
 
@@ -45,13 +47,13 @@ test('readPageInTab with fake document', () => {
     querySelectorAll: (sel) => ({
       'script[type="application/ld+json"]': [{ textContent: '{"name":"n"}' }, { textContent: '{bad' }],
       'meta[property^="og:"]': [{ getAttribute: (k) => (k === 'property' ? 'og:title' : 'OG') }],
-      'a[href*="/download:"]': [{ href: 'https://www.thingiverse.com/download:5', getAttribute: (k) => (k === 'data-filename' ? 'f.stl' : null), textContent: ' x ' }],
+      'a[href*="/download:"]': [{ href: 'https://www.thingiverse.com/download:5', getAttribute: (k) => ({ 'data-filename': 'f.stl', title: 'Get f.stl' })[k] ?? null, textContent: ' x ' }],
     })[sel],
   };
   try {
     assert.deepEqual(readPageInTab(), {
       title: 'T', jsonLd: [{ name: 'n' }], og: { title: 'OG' },
-      fileLinks: [{ href: 'https://www.thingiverse.com/download:5', text: 'f.stl' }],
+      fileLinks: [{ href: 'https://www.thingiverse.com/download:5', text: 'f.stl', hints: ['f.stl', 'Get f.stl'] }],
     });
   } finally { globalThis.document = prev; }
 });
@@ -88,7 +90,7 @@ test('fetchThingiverseModel: HTML + links -> links strategy', async () => {
   const { f } = fakeFetch('text/html');
   const r = await fetchThingiverseModel(U, { fetchImpl: f, pageData: { title: 'B', fileLinks: links } });
   assert.equal(r.strategy, 'links');
-  assert.deepEqual(r.files.map((x) => x.url), ['https://www.thingiverse.com/download:11', 'https://www.thingiverse.com/download:12']);
+  assert.deepEqual(r.files.map((x) => x.url), ['https://www.thingiverse.com/download:11', 'https://www.thingiverse.com/download:12', 'https://www.thingiverse.com/download:13']);
 });
 
 test('fetchThingiverseModel: HTML + no links throws Cloudflare message', async () => {
@@ -96,4 +98,11 @@ test('fetchThingiverseModel: HTML + no links throws Cloudflare message', async (
   await assert.rejects(fetchThingiverseModel(U, { fetchImpl: f, pageData: { fileLinks: [] } }), /Cloudflare/);
   assert.equal(st.cancelled, true);
   await assert.rejects(fetchThingiverseModel(U, { fetchImpl: async () => { throw new Error('net'); } }), /Cloudflare/);
+});
+
+test('zip probe: missing content-type needs PK magic', async () => {
+  const mk = (bytes) => async () => ({ ok: true, status: 200, headers: new Headers(), body: new Response(new Uint8Array(bytes)).body });
+  const z = await fetchThingiverseModel(U, { fetchImpl: mk([0x50, 0x4b, 3, 4, 9]), pageData: { fileLinks: [] } });
+  assert.equal(z.strategy, 'zip');
+  await assert.rejects(fetchThingiverseModel(U, { fetchImpl: mk([60, 33, 68]), pageData: { fileLinks: [] } }), /Cloudflare/);
 });

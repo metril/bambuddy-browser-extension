@@ -276,3 +276,16 @@ test('save thingiverse: blocked records none + error, no lastFolderId', async ()
   assert.match(d.error, /Cloudflare/);
   assert.notEqual(await settings.getSetting('lastFolderId'), 3);
 });
+
+test('save thingiverse: HTML download maps to Cloudflare message and diagnostics', async () => {
+  const f = async (url) => (url.endsWith('/zip')
+    ? { ok: false, status: 403, headers: new Headers({ 'content-type': 'text/html' }), body: { cancel: async () => {} } }
+    : { ok: true, status: 200, headers: new Headers({ 'content-type': 'text/html' }), body: new Response('<html>').body });
+  router = createRouter({ getClient: async () => prClient(), settings, fetchImpl: f, execInTab: async () => tvPage });
+  const r = await router.handle({ type: 'save', url: TV, tabId: 9 });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /Cloudflare/);
+  const d = (await settings.getSetting('diagnostics')).thingiverse;
+  assert.equal(d.strategy, 'links');
+  assert.match(d.error, /Cloudflare/);
+});

@@ -212,3 +212,39 @@ test('stream progress carries total; filenames are sanitized', async () => {
   assert.equal(r.results[0].filename, 'a_b.stl');
   assert.equal(s.progress.filter((p) => p.phase === 'upload').at(-1).total, 5);
 });
+
+const derive = (url) => [{ url, filename: 'file-12', deriveName: true }];
+
+test('deriveName: Content-Disposition filename* then filename= names the upload', async () => {
+  const t = setup({ sources: { 'https://d/12': { headers: { 'content-disposition': "attachment; filename=\"x.stl\"; filename*=UTF-8''Benchy%20v2.stl" } } } });
+  const out = await runUploadPipeline({ ...t.base, files: derive('https://d/12') });
+  assert.equal(out.ok, true);
+  assert.equal(t.calls.find((c) => c[0] === 'uploadFileStream')[1].filename, 'Benchy v2.stl');
+  const t2 = setup({ sources: { 'https://d/12': { headers: { 'content-disposition': 'attachment; filename="y.3mf"' } } } });
+  await runUploadPipeline({ ...t2.base, files: derive('https://d/12') });
+  assert.equal(t2.calls.find((c) => c[0] === 'uploadFileStream')[1].filename, 'y.3mf');
+});
+
+test('deriveName: final URL segment names the upload; unsupported derived name skipped', async () => {
+  const mk = (final) => (url) => ({ ok: true, status: 200, url: final, headers: new Headers({ 'content-type': 'model/stl' }), body: bodyOf([1]) });
+  const t = setup();
+  const base = { ...t.base, options: { ...t.base.options, fetchImpl: async (u) => mk('https://cdn/x/Part%20A.stl?sig=1')(u) } };
+  const out = await runUploadPipeline({ ...base, files: derive('https://d/12') });
+  assert.equal(out.ok, true);
+  assert.equal(t.calls.find((c) => c[0] === 'uploadFileStream')[1].filename, 'Part A.stl');
+  const t3 = setup();
+  const o3 = await runUploadPipeline({ ...t3.base, options: { ...t3.base.options, fetchImpl: async (u) => mk('https://cdn/readme.txt')(u) }, files: derive('https://d/12') });
+  assert.equal(o3.skipped[0].filename, 'readme.txt');
+  assert.match(o3.warnings[0], /readme\.txt/);
+});
+
+test('HTML responses fail the download (content-type or sniffed)', async () => {
+  const t = setup({ sources: { 'https://d/a.stl': { headers: { 'content-type': 'text/html' } } } });
+  const o = await runUploadPipeline({ ...t.base, files: [{ url: 'https://d/a.stl', filename: 'a.stl' }] });
+  assert.equal(o.ok, false);
+  assert.match(o.results[0].error, /web page instead of a file/);
+  const t2 = setup({ sources: { 'https://d/a.stl': { chunks: [[...Buffer.from('<!DOCTYPE html><html>')]] } } });
+  const o2 = await runUploadPipeline({ ...t2.base, files: [{ url: 'https://d/a.stl', filename: 'a.stl' }] });
+  assert.match(o2.results[0].error, /web page instead of a file/);
+  assert.equal(t2.calls.filter((c) => c[0].startsWith('upload')).length, 0);
+});

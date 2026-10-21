@@ -6,13 +6,52 @@ const MB = 1024 * 1024;
 
 const msg = (e) => (e && e.message) || String(e);
 
+export const HTML_ERROR = 'Download returned a web page instead of a file (sign-in or Cloudflare check required)';
+
+const htmlLike = (b) => /^\s*<(!doctype|html)/i.test(new TextDecoder().decode(b.subarray(0, 64)));
+
+export function filenameFromResponse(res) {
+  const cd = (res.headers && res.headers.get && res.headers.get('content-disposition')) || '';
+  let m = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(cd);
+  if (m) { try { return decodeURIComponent(m[1].trim().replace(/^"|"$/g, '')); } catch { /* fall through */ } }
+  m = /filename\s*=\s*(?:"([^"]*)"|([^;]+))/i.exec(cd);
+  if (m) return (m[1] ?? m[2]).trim();
+  try {
+    const seg = new URL(res.url).pathname.split('/').filter(Boolean).pop();
+    return seg ? decodeURIComponent(seg) : '';
+  } catch { return ''; }
+}
+
 export async function fetchSource(fetchImpl, url, credentials) {
   try {
     const ctl = new AbortController();
-    const res = await fetchImpl(url, { credentials, signal: ctl.signal });
+    let res = await fetchImpl(url, { credentials, signal: ctl.signal });
     if (!res.ok) {
       ctl.abort();
       return { error: `Download failed (HTTP ${res.status})` };
+    }
+    const ct = res.headers && res.headers.get && res.headers.get('content-type');
+    if (/text\/html/i.test(ct || '')) {
+      ctl.abort();
+      return { error: HTML_ERROR };
+    }
+    if (!ct && res.body && res.body.getReader) {
+      const reader = res.body.getReader();
+      const first = await reader.read();
+      if (first.value && htmlLike(first.value)) {
+        ctl.abort();
+        return { error: HTML_ERROR };
+      }
+      let sent = false;
+      const body = new ReadableStream({
+        async pull(c) {
+          if (!sent) { sent = true; if (first.done) c.close(); else c.enqueue(first.value); return; }
+          const n = await reader.read();
+          if (n.done) c.close(); else c.enqueue(n.value);
+        },
+        cancel: (r) => reader.cancel(r),
+      });
+      res = { ok: res.ok, status: res.status, headers: res.headers, url: res.url, body };
     }
     return { res, ctl };
   } catch (e) {
@@ -161,9 +200,8 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
 
   for (let i = 0; i < files.length; i++) {
     const { url, sizeHint } = files[i];
-    const filename = sanitizeFilename(files[i].filename);
-    const kind = classifyFile(filename);
-    if (!isUploadable(filename)) {
+    let filename = sanitizeFilename(files[i].filename);
+    if (!files[i].deriveName && !isUploadable(filename)) {
       out.warnings.push(`Skipped ${filename}: unsupported file type`);
       out.skipped.push({ filename, reason: 'unsupported' });
       continue;
@@ -174,6 +212,17 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
       out.ok = false;
       continue;
     }
+    if (files[i].deriveName) {
+      const derived = sanitizeFilename(filenameFromResponse(src.res) || filename);
+      if (!isUploadable(derived)) {
+        src.ctl.abort();
+        out.warnings.push(`Skipped ${derived}: unsupported file type`);
+        out.skipped.push({ filename: derived, reason: 'unsupported' });
+        continue;
+      }
+      filename = derived;
+    }
+    const kind = classifyFile(filename);
     const total = contentLength(src.res, sizeHint);
     if (total > limitBytes) {
       const go = hooks.confirmLarge ? await hooks.confirmLarge({ filename, bytes: total }) : false;
