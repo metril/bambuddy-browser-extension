@@ -16,16 +16,19 @@ test('probe sends a streamed POST without credentials', async () => {
   assert.ok(seen.init.body instanceof ReadableStream);
 });
 
-test('probe: 405 or JSON body means ok', async () => {
+test('probe: 405 or 401 means ok', async () => {
   assert.equal(await probe(async () => resp(405)), 'ok');
   assert.equal(await probe(async () => resp(401, 'application/json')), 'ok');
 });
 
-test('probe: other responses mean blocked', async () => {
+test('probe: other responses (including JSON 403) mean blocked', async () => {
   assert.equal(await probe(async () => resp(403)), 'blocked');
+  assert.equal(await probe(async () => resp(403, 'application/json')), 'blocked');
   assert.equal(await probe(async () => resp(502, 'text/html')), 'blocked');
 });
 
-test('probe: TypeError means h1', async () => {
-  assert.equal(await probe(async () => { throw new TypeError('Failed to fetch'); }), 'h1');
+test('probe: HTTP/1.1 TypeError means h1; other errors are unknown', async () => {
+  assert.equal(await probe(async () => { throw new TypeError('ReadableStream uploading is only supported over HTTP/2 or HTTP/3'); }), 'h1');
+  assert.equal(await probe(async () => { throw new TypeError('Failed to fetch'); }), 'unknown');
+  assert.equal(await probe(async () => { throw new Error('boom'); }), 'unknown');
 });

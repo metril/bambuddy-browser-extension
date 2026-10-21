@@ -1,7 +1,7 @@
 // Bambuddy API client. Never throws: every call resolves to
 // { ok, status, data, error, kind } with kind in auth|notfound|client|server|network.
 
-const STREAM_ERR = /stream|body|http\/?[123]|http-1|failed to fetch/i;
+export const STREAM_ERR = /stream|body|http\/?[123]|http-1/i;
 
 function kindFor(status) {
   if (status === 0) return 'network';
@@ -66,7 +66,7 @@ export function createClient({
         res = await fetchImpl(buildUrl(path, query), init);
       } catch (e) {
         const error = timedOut ? 'Timed out' : redact(e && e.message) || 'Network error';
-        return { ok: false, status: 0, data: null, error, kind: 'network', _cause: e };
+        return { ok: false, status: 0, data: null, error, kind: 'network', ...(timedOut ? { timedOut: true } : {}), _cause: e };
       }
       let data = null;
       try {
@@ -75,7 +75,7 @@ export function createClient({
           try { data = JSON.parse(text); } catch { data = text; }
         }
       } catch {
-        if (timedOut) return { ok: false, status: 0, data: null, error: 'Timed out', kind: 'network' };
+        if (timedOut) return { ok: false, status: 0, data: null, error: 'Timed out', kind: 'network', timedOut: true };
       }
       if (res.ok) return { ok: true, status: res.status, data, error: null, kind: null };
       const error = redact(detailText(data, res.statusText || `HTTP ${res.status}`));
@@ -88,14 +88,14 @@ export function createClient({
 
   const clean = ({ _cause, ...r }) => r;
 
-  async function request(method, path, { body, query, signal } = {}) {
+  async function request(method, path, { body, query, signal, timeout = timeoutMs } = {}) {
     const headers = {};
     let payload;
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
       payload = JSON.stringify(body);
     }
-    return clean(await send(method, path, { query, headers, body: payload, signal, timeout: timeoutMs }));
+    return clean(await send(method, path, { query, headers, body: payload, signal, timeout }));
   }
 
   async function upload(path, { field = 'file', blob, filename }, query, signal) {
@@ -137,6 +137,7 @@ export function createClient({
       request('POST', '/makerworld/import', {
         body: { source_type: 'makerworld', model_id, profile_id, instance_id, folder_id },
         signal,
+        timeout: uploadTimeoutMs, // Bambuddy downloads the 3MF before answering
       }),
     mwRecent: (limit) => request('GET', '/makerworld/recent-imports', { query: { limit } }),
     uploadFile: (blob, filename, { folderId, generateStlThumbnails } = {}) =>

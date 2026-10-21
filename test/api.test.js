@@ -60,6 +60,18 @@ test('network error and timeout map to kind network', async () => {
   ({ c } = mk([hang], { timeoutMs: 20 }));
   r = await c.request('GET', '/x');
   assert.deepEqual([r.ok, r.status, r.kind, r.error], [false, 0, 'network', 'Timed out']);
+  assert.equal(r.timedOut, true);
+  ({ c } = mk([new TypeError('boom')]));
+  assert.equal((await c.request('GET', '/x')).timedOut, undefined);
+});
+
+test('mwImport uses the upload timeout, not the short one', async () => {
+  const hang = (url, init) => new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))));
+  let { c } = mk([hang], { timeoutMs: 10, uploadTimeoutMs: 40 });
+  const t0 = Date.now();
+  const r = await c.mwImport({ model_id: 1 });
+  assert.equal(r.timedOut, true);
+  assert.ok(Date.now() - t0 >= 30);
 });
 
 test('caller abort signal cancels', async () => {
@@ -104,7 +116,7 @@ test('uploadStream passes duplex half and multipart content-type', async () => {
 });
 
 test('uploadStream flags streamUnsupported on stream TypeError', async () => {
-  for (const msg of ['Failed to fetch', 'ReadableStream uploading is only supported over HTTP/2 or HTTP/3']) {
+  for (const msg of ['ReadableStream uploading is only supported over HTTP/2 or HTTP/3']) {
     const { c } = mk([new TypeError(msg)]);
     const r = await c.uploadStream('/library/files', { stream: new ReadableStream(), boundary: 'B' });
     assert.equal(r.ok, false);
@@ -113,7 +125,9 @@ test('uploadStream flags streamUnsupported on stream TypeError', async () => {
     assert.equal(r.streamUnsupported, true);
     assert.equal(r.error, msg);
   }
-  const { c } = mk([new Error('other')]);
+  let { c } = mk([new TypeError('Failed to fetch')]);
+  assert.equal((await c.uploadStream('/x', { stream: new ReadableStream(), boundary: 'B' })).streamUnsupported, undefined);
+  ({ c } = mk([new Error('other')]));
   const r = await c.uploadStream('/x', { stream: new ReadableStream(), boundary: 'B' });
   assert.equal(r.streamUnsupported, undefined);
 });
