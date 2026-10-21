@@ -17,6 +17,7 @@ export function outcomeToBadge(r) {
 }
 
 export function outcomeToNotification(r) {
+  if (r?.bulkMessage) return { message: r.bulkMessage, openUrl: r.openUrl || null };
   if (r?.needsConfirmLarge) return { message: 'File too large for one-click import — open the popup to confirm', openUrl: null };
   if (!r?.ok) return { message: r?.error || 'Save failed', openUrl: null };
   if (r.wasExisting) return { message: 'Already in library', openUrl: null };
@@ -58,7 +59,21 @@ export function createBackground({ chrome, router, settings }) {
     return result;
   }
 
+  async function onJobFinished(job) {
+    const failed = job?.failed?.length ?? 0;
+    const label = job?.status === 'cancelled' ? 'Cancelled. ' : '';
+    const result = {
+      ok: failed === 0,
+      bulkMessage: `${label}Imported ${job?.imported?.length ?? 0}, skipped ${job?.skipped ?? 0}, failed ${failed}`,
+      openUrl: job?.openUrl || null,
+    };
+    try { await flashBadge(result); } catch { /* cosmetic */ }
+    try { await notify(result); } catch { /* cosmetic */ }
+    return result;
+  }
+
   return {
+    onJobFinished,
     flashBadge,
     notify,
     saveUrl,

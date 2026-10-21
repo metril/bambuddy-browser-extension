@@ -109,3 +109,13 @@ test('flashBadge/notify throwing does not reject saveUrl', async () => {
   const r = await bg.saveUrl('https://makerworld.com/en/models/1');
   assert.equal(r.ok, true);
 });
+
+test('bulk finish: notification summary with folder link, badge, job-tick alarm ignored', async () => {
+  const r = await bg.onJobFinished({ status: 'done', imported: [{}, {}], skipped: 1, failed: [{}], openUrl: 'http://bb/files?folder=3' });
+  assert.equal(r.ok, false);
+  assert.equal(fc.calls.notifications[0].opts.message, 'Imported 2, skipped 1, failed 1');
+  assert.equal(fc.calls.badgeText.at(-1).text, '!');
+  await bg.onNotificationClicked(fc.calls.notifications[0].id);
+  assert.deepEqual(fc.calls.tabsCreated, [{ url: 'http://bb/files?folder=3' }]);
+  await bg.onAlarm({ name: 'job-tick' });
+});

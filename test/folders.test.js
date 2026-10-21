@@ -31,3 +31,14 @@ test('flat with parent_id is rebuilt; orphans become roots', () => {
     [1, 0, 'a'], [2, 1, 'a/b'], [3, 2, 'a/b/c'], [9, 0, 'o'],
   ]);
 });
+
+test('childFolders handles nested and flat trees', async () => {
+  const { childFolders } = await import('../src/lib/folders.js');
+  const nested = [{ id: 1, name: 'A', children: [{ id: 2, name: 'B', children: [] }] }, { id: 3, name: 'C' }];
+  assert.deepEqual(childFolders(nested, null), [{ id: 1, name: 'A' }, { id: 3, name: 'C' }]);
+  assert.deepEqual(childFolders(nested, 1), [{ id: 2, name: 'B' }]);
+  const flat = [{ id: 1, name: 'A', parent_id: null }, { id: 2, name: 'B', parent_id: 1 }];
+  assert.deepEqual(childFolders(flat, 1), [{ id: 2, name: 'B' }]);
+  assert.deepEqual(childFolders(flat), [{ id: 1, name: 'A' }]);
+  assert.deepEqual(childFolders(null, 1), []);
+});

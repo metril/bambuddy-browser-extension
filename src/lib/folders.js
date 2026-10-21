@@ -31,3 +31,19 @@ export function flattenFolders(tree) {
   walk(roots, 0, '');
   return out;
 }
+
+/** Direct children {id,name} of parentId (null = top level), for nested or flat (parent_id) trees. */
+export function childFolders(tree, parentId = null) {
+  const want = parentId == null || parentId === '' ? null : String(parentId);
+  const out = [];
+  const walk = (nodes, implicit) => {
+    for (const f of Array.isArray(nodes) ? nodes : []) {
+      if (!f) continue;
+      const p = f.parent_id ?? implicit;
+      if ((p == null ? null : String(p)) === want) out.push({ id: f.id, name: f.name });
+      if (Array.isArray(f.children)) walk(f.children, f.id);
+    }
+  };
+  walk(tree, null);
+  return out;
+}

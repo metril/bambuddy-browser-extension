@@ -1,7 +1,10 @@
 // Message router. Never throws out of handle().
 import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
-import { flattenFolders } from './folders.js';
+import { flattenFolders, childFolders } from './folders.js';
+import { folderNameFromTitle } from './filenames.js';
+import { readCollections, readCollectionItems } from './mwPageReaders.js';
+import { createBulkJob } from './bulkJob.js';
 import { fetchPrintablesModel, fetchPrint, selectFiles, parseModelId } from './adapters/printables.js';
 import { fetchThingiverseModel, readPageInTab, parsePageMeta, CF_ERROR } from './adapters/thingiverse.js';
 import { runUploadPipeline } from './uploadPipeline.js';
@@ -11,6 +14,10 @@ const openUrlFor = (baseUrl, folderId) => {
   const root = String(baseUrl || '').replace(/\/+$/, '');
   return folderId != null && folderId !== '' ? `${root}/files?folder=${folderId}` : `${root}/files`;
 };
+
+export const JOB_KEY = 'job';
+export const JOB_ALARM = 'job-tick';
+const ALREADY_RUNNING = 'A bulk import is already running';
 
 export function createRouter(deps) {
   const { getClient, settings } = deps;
@@ -188,9 +195,139 @@ export function createRouter(deps) {
     };
   }
 
-  const handlers = { testConnection, getPickerData, save };
+  // ---- bulk import of MakerWorld collections ----
+  const jobArea = () => deps.chrome?.storage?.session || deps.chrome?.storage?.local;
+  const nowMs = () => (deps.now || Date.now)();
+  let active = null; // { promise, job, cancelled }
+
+  async function readJob() {
+    try { return (await jobArea().get([JOB_KEY]))[JOB_KEY] ?? null; } catch { return null; }
+  }
+  async function writeJob(job) {
+    try { await jobArea().set({ [JOB_KEY]: job }); } catch { /* best-effort */ }
+  }
+  const clearTick = async () => { try { await deps.chrome?.alarms?.clear(JOB_ALARM); } catch { /* ignore */ } };
+
+  async function listCollections({ tabId }) {
+    if (!deps.execInTab || tabId == null) return { ok: false, error: 'No MakerWorld tab', kind: 'client' };
+    const collections = await readCollections(deps.execInTab, tabId);
+    const client = await withClient();
+    let folders = [];
+    if (client) {
+      const fr = await client.listFolders();
+      if (fr.ok) folders = flattenFolders(fr.data);
+    }
+    return { ok: true, collections, folders };
+  }
+
+  async function resolveFolder(client, tree, created, name, parentId) {
+    const key = `${parentId ?? ''}/${name}`;
+    if (created.has(key)) return { id: created.get(key) };
+    const hit = childFolders(tree, parentId).find((f) => f.name === name);
+    if (hit) { created.set(key, hit.id); return { id: hit.id }; }
+    const cr = await client.createFolder(name, parentId ?? undefined);
+    if (!cr.ok) return { error: cr.error || 'Could not create folder' };
+    created.set(key, cr.data?.id);
+    return { id: cr.data?.id };
+  }
+
+  function makeRun(client) {
+    return async (item) => {
+      const rr = await client.mwResolve(item.url);
+      if (!rr.ok) return { outcome: 'failed', error: rr.error || 'Resolve failed' };
+      if ((rr.data?.already_imported_library_ids || []).length) return { outcome: 'skipped' };
+      const ir = await client.mwImport({ model_id: Number(rr.data.model_id ?? item.externalId), folder_id: item.folderId });
+      if (!ir.ok) return { outcome: 'failed', error: ir.error || 'Import failed' };
+      if (ir.data?.was_existing) return { outcome: 'skipped' };
+      return { outcome: 'imported', fileId: ir.data?.library_file_id ?? null };
+    };
+  }
+
+  async function runBulk(client, ctl, { tabId, collections, parentFolderId, concurrency }) {
+    const s = await settings.getSettings(['baseUrl', 'bulkConcurrency']);
+    const conc = Math.min(3, Math.max(1, Number(concurrency ?? s.bulkConcurrency) || 2));
+    const parent = parentFolderId === '' ? null : parentFolderId ?? null;
+    const meta = { tabId, collections, parentFolderId: parent, concurrency: conc, openUrl: null };
+    const pre = [];
+    const view = (st) => ({ ...st, failed: [...pre, ...st.failed], ...meta });
+    const blank = { status: 'running', phase: 'preparing', total: 0, done: 0, skipped: 0, failed: [], imported: [], startedAt: nowMs(), finishedAt: null };
+    await writeJob(view(blank));
+    let final;
+    try {
+      const fr = await client.listFolders();
+      if (!fr.ok) throw new Error(fr.error || 'Could not list folders');
+      const created = new Map();
+      const items = [];
+      for (const c of collections) {
+        if (ctl.cancelled) break;
+        const name = folderNameFromTitle(c.title);
+        const f = await resolveFolder(client, fr.data, created, name, parent);
+        if (f.error) { pre.push({ title: c.title, url: '', error: `Folder "${name}": ${f.error}` }); continue; }
+        if (meta.openUrl == null && f.id != null) meta.openUrl = openUrlFor(s.baseUrl, f.id);
+        const got = await readCollectionItems(deps.execInTab, tabId, { listId: c.listId, title: c.title, slug: c.slug, count: c.count });
+        if (got.unreadable) { pre.push({ title: c.title, url: '', error: 'Could not read this collection from the page' }); continue; }
+        for (const it of got.items) items.push({ ...it, folderId: f.id });
+      }
+      if (ctl.cancelled) {
+        final = view({ ...blank, status: 'cancelled', finishedAt: nowMs() });
+      } else {
+        ctl.job = createBulkJob({
+          items, concurrency: conc, run: makeRun(client), now: nowMs,
+          onUpdate: (st) => { writeJob(view(st)); },
+        });
+        final = view(await ctl.job.start());
+      }
+    } catch (e) {
+      pre.push({ title: '', url: '', error: String(e?.message || e) });
+      final = view({ ...blank, status: 'done', finishedAt: nowMs() });
+    }
+    await writeJob(final);
+    await clearTick();
+    try { await deps.onJobFinished?.(final); } catch { /* notification is cosmetic */ }
+  }
+
+  async function startBulk(msg) {
+    if (active) return { ok: false, error: ALREADY_RUNNING };
+    const ctl = { cancelled: false, job: null };
+    active = ctl;
+    try {
+      const client = await withClient();
+      if (!client) { active = null; return { ok: false, error: 'Not configured' }; }
+      if (!deps.execInTab || msg.tabId == null) { active = null; return { ok: false, error: 'No MakerWorld tab', kind: 'client' }; }
+      if (!Array.isArray(msg.collections) || !msg.collections.length) { active = null; return { ok: false, error: 'No collections selected' }; }
+      try { await deps.chrome?.alarms?.create(JOB_ALARM, { periodInMinutes: 0.5 }); } catch { /* keep-alive is best-effort */ }
+      ctl.promise = runBulk(client, ctl, msg).catch(() => {}).finally(() => { active = null; });
+      return { ok: true };
+    } catch (e) {
+      active = null;
+      throw e;
+    }
+  }
+
+  async function cancelBulk() {
+    if (!active) return { ok: true, running: false };
+    active.cancelled = true;
+    active.job?.cancel();
+    return { ok: true, running: true };
+  }
+
+  async function getJob() {
+    return { ok: true, job: await readJob(), running: !!active };
+  }
+
+  /** On SW startup: a stored "running" job has no live worker, so mark it interrupted. */
+  async function markInterrupted() {
+    if (active) return;
+    const job = await readJob();
+    if (job?.status === 'running') await writeJob({ ...job, status: 'interrupted', finishedAt: nowMs() });
+    await clearTick();
+  }
+
+  const handlers = { testConnection, getPickerData, save, listCollections, startBulk, cancelBulk, getJob };
 
   return {
+    markInterrupted,
+    idle: async () => { await active?.promise; },
     async handle(message) {
       try {
         const h = message && Object.hasOwn(handlers, message.type) ? handlers[message.type] : null;

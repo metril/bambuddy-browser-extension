@@ -289,3 +289,116 @@ test('save thingiverse: HTML download maps to Cloudflare message and diagnostics
   assert.equal(d.strategy, 'links');
   assert.match(d.error, /Cloudflare/);
 });
+
+// ---- bulk import ----
+const dsg = (id) => ({ id, title: `Model ${id}`, designCreator: { name: 'a' }, cover: 'c' });
+const bulkPage = {
+  readCollectionsDataInPage: { href: 'https://makerworld.com/en/@bob/collections', nextData: { buildId: 'B' }, routePageProps: null },
+  collectAnchorPathnamesInPage: [],
+  fetchDataRouteInPage: (b, p) => ({ pageProps: { designs: p.includes('/collections/1-') ? [dsg(1), dsg(2), dsg(3)] : [dsg(4)] } }),
+};
+const COLLS = [{ listId: '1', title: 'Alpha', slug: 'alpha', count: 3 }, { listId: '2', title: 'Beta', slug: 'beta', count: 1 }];
+let created, resolves, ended;
+function bulkRouter(over = {}) {
+  created = []; resolves = []; ended = [];
+  client.listFolders = async () => res([{ id: 10, name: 'Root', children: [{ id: 11, name: 'Alpha', children: [] }] }]);
+  client.createFolder = async (name, parentId) => { created.push({ name, parentId }); return res({ id: 50 + created.length }); };
+  client.mwResolve = async (url) => { resolves.push(url); return res({ model_id: Number(url.split('/').pop()), already_imported_library_ids: [] }); };
+  const exec = async (tabId, func, args) => (typeof bulkPage[func.name] === "function" ? bulkPage[func.name](...args) : bulkPage[func.name]);
+  router = createRouter({ getClient: async () => client, settings, chrome, execInTab: exec, onJobFinished: (j) => ended.push(j), ...over });
+}
+
+test('startBulk reuses an existing folder, creates a missing one, imports into each', async () => {
+  bulkRouter();
+  assert.deepEqual(await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS, parentFolderId: 10 }), { ok: true });
+  await router.idle();
+  assert.deepEqual(created, [{ name: 'Beta', parentId: 10 }]);
+  const byModel = Object.fromEntries(imports.map((i) => [i.model_id, i.folder_id]));
+  assert.deepEqual(byModel, { 1: 11, 2: 11, 3: 11, 4: 51 });
+  const { job } = await router.handle({ type: 'getJob' });
+  assert.equal(job.status, 'done');
+  assert.equal(job.imported.length, 4);
+  assert.equal(job.openUrl, 'https://bb.example/files?folder=11');
+  assert.equal(ended.length, 1);
+  assert.ok(chrome.calls.alarmsCreate.some((a) => a.name === 'job-tick' && a.info.periodInMinutes === 0.5));
+  assert.ok(chrome.calls.alarmsClear.includes('job-tick'));
+  assert.ok(chrome.storage.session.data.job);
+});
+
+test('startBulk skips already-imported and was_existing, reports failures', async () => {
+  bulkRouter();
+  client.mwResolve = async (url) => {
+    const id = Number(url.split('/').pop());
+    return res({ model_id: id, already_imported_library_ids: id === 1 ? [7] : [] });
+  };
+  client.mwImport = async (b) => {
+    imports.push(b);
+    if (b.model_id === 2) return res({ library_file_id: 8, was_existing: true });
+    if (b.model_id === 3) return err('cloud down', 'server');
+    return res({ library_file_id: 9, was_existing: false });
+  };
+  await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS });
+  await router.idle();
+  const { job } = await router.handle({ type: 'getJob' });
+  assert.equal(job.skipped, 2);
+  assert.equal(job.imported.length, 1);
+  assert.deepEqual(job.failed.map((f) => [f.title, f.error]), [['Model 3', 'cloud down']]);
+  assert.equal(job.done, 4);
+  assert.equal(imports.some((i) => i.model_id === 1), false);
+  assert.equal(created[0].parentId, undefined);
+});
+
+test('startBulk refuses a concurrent job; unreadable collection and folder failure are reported', async () => {
+  bulkRouter();
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  client.mwResolve = async () => { await gate; return res({ model_id: 1, already_imported_library_ids: [1] }); };
+  assert.equal((await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS })).ok, true);
+  assert.deepEqual(await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS }), { ok: false, error: 'A bulk import is already running' });
+  release();
+  await router.idle();
+  assert.equal((await router.handle({ type: 'startBulk', tabId: 1, collections: [COLLS[0]] })).ok, true);
+  await router.idle();
+
+  bulkRouter();
+  bulkPage.fetchDataRouteInPage = null;
+  client.createFolder = async () => err('exists', 'client');
+  try {
+    await router.handle({ type: 'startBulk', tabId: 1, collections: [COLLS[1]] });
+    await router.idle();
+    const { job } = await router.handle({ type: 'getJob' });
+    assert.match(job.failed[0].error, /Folder "Beta": exists/);
+  } finally {
+    bulkPage.fetchDataRouteInPage = (b, p) => ({ pageProps: { designs: p.includes('/collections/1-') ? [dsg(1), dsg(2), dsg(3)] : [dsg(4)] } });
+  }
+});
+
+test('cancelBulk stops the job; restart marks a stored running job interrupted', async () => {
+  bulkRouter();
+  let n = 0;
+  client.mwResolve = async () => { n++; if (n === 1) await router.handle({ type: 'cancelBulk' }); return res({ model_id: n, already_imported_library_ids: [1] }); };
+  await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS, concurrency: 1 });
+  await router.idle();
+  assert.equal((await router.handle({ type: 'getJob' })).job.status, 'cancelled');
+  assert.deepEqual(await router.handle({ type: 'cancelBulk' }), { ok: true, running: false });
+
+  await chrome.storage.session.set({ job: { status: 'running', total: 4, collections: COLLS } });
+  bulkRouter();
+  await router.markInterrupted();
+  const j = (await router.handle({ type: 'getJob' })).job;
+  assert.equal(j.status, 'interrupted');
+  assert.deepEqual(j.collections, COLLS);
+});
+
+test('job state falls back to storage.local when session is unavailable; listCollections', async () => {
+  bulkRouter();
+  const local = chrome.storage.local;
+  delete chrome.storage.session;
+  router = createRouter({ getClient: async () => client, settings, chrome, execInTab: async (t, f) => (f.name === 'readCollectionsDataInPage' ? { href: 'https://makerworld.com/en/@bob/collections', nextData: { props: { pageProps: { favoritesList: [{ id: 1, title: 'A', designCnt: 2 }] } } } } : null) });
+  const r = await router.handle({ type: 'listCollections', tabId: 1 });
+  assert.equal(r.collections[0].listId, '1');
+  assert.equal(r.folders[0].name, 'Root');
+  await router.handle({ type: 'startBulk', tabId: 1, collections: [{ listId: '1', title: 'A', slug: null, count: 2 }] });
+  await router.idle();
+  assert.ok(local.data.job);
+});
