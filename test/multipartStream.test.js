@@ -52,6 +52,26 @@ test('multipart works with a boundary default and cancel propagates', async () =
   assert.ok(cancelled);
 });
 
+test('field name quotes and CR/LF are escaped', async () => {
+  const { stream } = buildMultipartStream({ field: 'a"b\r\nc', filename: 'x', body: streamOf([]), boundary: 'B' });
+  assert.match(concat(await collect(stream)).toString(), /name="a%22b%0D%0Ac"; filename="x"/);
+});
+
+test('countingTransform enforces maxBytes, calls onExceed and errors the stream', async () => {
+  let exceeded = 0;
+  const seen = [];
+  const out = streamOf([new Uint8Array(3), new Uint8Array(4), new Uint8Array(1)])
+    .pipeThrough(countingTransform((n) => seen.push(n), { maxBytes: 5, onExceed: () => exceeded++ }));
+  await assert.rejects(collect(out), /File exceeded the 0 MB limit during streaming/);
+  assert.equal(exceeded, 1);
+  assert.deepEqual(seen, [3]);
+});
+
+test('countingTransform without maxBytes has no cap', async () => {
+  const out = streamOf([new Uint8Array(3), new Uint8Array(4)]).pipeThrough(countingTransform());
+  assert.equal((await collect(out)).length, 2);
+});
+
 test('filename CR/LF are escaped', async () => {
   const { stream } = buildMultipartStream({ field: 'f', filename: 'a\r\nb', body: streamOf([]), boundary: 'B' });
   assert.match(concat(await collect(stream)).toString(), /filename="a%0D%0Ab"/);

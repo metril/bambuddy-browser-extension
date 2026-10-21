@@ -17,8 +17,9 @@ export function buildMultipartStream({
 }) {
   const enc = new TextEncoder();
   const safeName = String(filename).replace(/"/g, '%22').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+  const safeField = String(field).replace(/"/g, '%22').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
   const head = enc.encode(
-    `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${safeName}"\r\nContent-Type: ${contentType}\r\n\r\n`,
+    `--${boundary}\r\nContent-Disposition: form-data; name="${safeField}"; filename="${safeName}"\r\nContent-Type: ${contentType}\r\n\r\n`,
   );
   const tail = enc.encode(`\r\n--${boundary}--\r\n`);
   let reader;
@@ -35,11 +36,17 @@ export function buildMultipartStream({
   return { stream, boundary };
 }
 
-export function countingTransform(onBytes) {
+// Optional cap: past maxBytes, onExceed() runs and the stream errors (no further bytes pass).
+export function countingTransform(onBytes, { maxBytes, onExceed } = {}) {
   let total = 0;
   return new TransformStream({
     transform(chunk, ctl) {
       total += chunk.byteLength;
+      if (maxBytes && total > maxBytes) {
+        onExceed?.();
+        ctl.error(new Error(`File exceeded the ${Math.round(maxBytes / (1024 * 1024))} MB limit during streaming`));
+        return;
+      }
       ctl.enqueue(chunk);
       onBytes?.(total);
     },

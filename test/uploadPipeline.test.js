@@ -175,6 +175,36 @@ test('buffer mode aborts unknown-size body over limit', async () => {
   assert.match(r.results[0].error, /exceeds/);
 });
 
+test('stream mode enforces the cap when Content-Length is absent', async () => {
+  const big = [new Array(700 * 1024).fill(1), new Array(700 * 1024).fill(1)];
+  const { base, calls } = setup({ sources: { 'u/a': { chunks: big } } });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.ok, false);
+  assert.equal(r.results[0].error, 'File exceeded the 1 MB limit during streaming');
+  assert.equal(r.results[0].mode, 'stream');
+  assert.deepEqual(names(calls), ['uploadFileStream']);
+});
+
+test('stream cap error is reported even when the client swallows the stream failure', async () => {
+  const big = [new Array(700 * 1024).fill(1), new Array(700 * 1024).fill(1)];
+  const { base, calls } = setup({
+    sources: { 'u/a': { chunks: big } },
+    client: { uploadFileStream: async (parts) => { try { await drain(parts.stream); } catch { /* network error */ } return { ok: false, status: 0, error: 'Network error', kind: 'network' }; } },
+  });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl' }] });
+  assert.equal(r.results[0].error, 'File exceeded the 1 MB limit during streaming');
+  assert.ok(!names(calls).includes('uploadFile'));
+});
+
+test('large-file confirmation lifts the stream cap', async () => {
+  const big = [new Array(700 * 1024).fill(1), new Array(700 * 1024).fill(1)];
+  const { base, hooks } = setup({ sources: { 'u/a': { chunks: big, headers: {} } } });
+  hooks.confirmLarge = async () => true;
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl', sizeHint: 5 * 1024 * 1024 }] });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.fileIds, [1]);
+});
+
 test('unsupported file is skipped with warning; ok stays true', async () => {
   const { base, fetched } = setup();
   const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.gcode' }] });

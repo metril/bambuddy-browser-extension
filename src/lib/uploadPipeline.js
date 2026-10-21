@@ -98,8 +98,8 @@ export async function readToBlob(res, { limitBytes, onBytes } = {}) {
   return new Blob(chunks);
 }
 
-function streamParts(res, filename, onBytes) {
-  const body = res.body.pipeThrough(countingTransform(onBytes));
+function streamParts(res, filename, onBytes, cap) {
+  const body = res.body.pipeThrough(countingTransform(onBytes, cap));
   const { stream, boundary } = buildMultipartStream({ field: 'file', filename, body });
   return { field: 'file', filename, contentType: 'application/octet-stream', stream, boundary };
 }
@@ -165,15 +165,17 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
   const progress = (fileIndex, filename, phase) => (bytes, total) =>
     hooks.onProgress?.({ fileIndex, filename, phase, bytes, total });
 
-  // Stream mode is memory-bounded (one chunk) but not byte-capped when Content-Length is absent.
-  async function doUpload(kind, fileIndex, filename, src, total, opts) {
+  // Stream mode is memory-bounded (one chunk). Without a Content-Length the cap is enforced while
+  // streaming (the upload errors past maxFileMB) unless the user confirmed a large file.
+  async function doUpload(kind, fileIndex, filename, src, total, opts, confirmed) {
     // Returns { r, mode } where r is the api result.
     const isZip = kind === 'zip';
     const send = async (s0, useMode) => {
       const r0 = s0.res;
       if (useMode === 'stream') {
         const onUp = progress(fileIndex, filename, 'upload');
-        const parts = streamParts(r0, filename, (b) => onUp(b, total));
+        const cap = total || confirmed ? undefined : { maxBytes: limitBytes, onExceed: () => { exceeded = true; } };
+        const parts = streamParts(r0, filename, (b) => onUp(b, total), cap);
         return isZip ? client.extractZipStream(parts, opts) : client.uploadFileStream(parts, opts);
       }
       const blob = await readToBlob(r0, {
@@ -183,8 +185,15 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
       progress(fileIndex, filename, 'upload')(blob.size, blob.size);
       return isZip ? client.extractZip(blob, filename, opts) : client.uploadFile(blob, filename, opts);
     };
+    let exceeded = false;
+    const exceededResult = () => ({ r: { ok: false, error: `File exceeded the ${maxFileMB} MB limit during streaming` }, used: 'stream' });
     let r;
-    try { r = await send(src, mode); } catch (e) { src.ctl.abort(); throw e; }
+    try { r = await send(src, mode); } catch (e) {
+      src.ctl.abort();
+      if (exceeded) return exceededResult();
+      throw e;
+    }
+    if (exceeded) { src.ctl.abort(); return exceededResult(); }
     if (!r.ok) src.ctl.abort();
     if (mode === 'stream' && !r.ok && uploadMode !== 'stream' && shouldFallBack(r)) {
       mode = 'buffer';
@@ -233,6 +242,7 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
     }
     const kind = classifyFile(filename);
     const total = contentLength(src.res, sizeHint);
+    let confirmed = false;
     if (total > limitBytes) {
       const go = hooks.confirmLarge ? await hooks.confirmLarge({ filename, bytes: total }) : false;
       if (!go) {
@@ -241,11 +251,12 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
         out.skipped.push({ filename, reason: 'too-large' });
         continue;
       }
+      confirmed = true;
     }
     const opts = kind === 'zip' ? { folderId, createFolderFromZip: true } : { folderId };
     let up;
     try {
-      up = await doUpload(kind, i, filename, src, total, opts);
+      up = await doUpload(kind, i, filename, src, total, opts, confirmed);
     } catch (e) {
       up = { r: { ok: false, error: msg(e) }, used: mode };
     }
