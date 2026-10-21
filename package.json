@@ -1,0 +1,13 @@
+{
+  "name": "bambuddy-browser-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Chrome MV3 extension that sends MakerWorld, Printables and Thingiverse models to a Bambuddy library.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "icons": "node scripts/make-icons.mjs",
+    "zip": "mkdir -p dist && zip -r dist/bambuddy-extension-$npm_package_version.zip manifest.json src icons LICENSE README.md"
+  },
+  "license": "MIT"
+}
