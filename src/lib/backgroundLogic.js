@@ -48,7 +48,7 @@ export function createBackground({ chrome, router, settings }) {
     // Pings a trivial extension API so the service worker is not stopped mid-save.
     const keepAlive = setInterval(() => { Promise.resolve(chrome.runtime.getPlatformInfo()).catch(() => {}); }, KEEPALIVE_MS);
     try {
-      if (!url) throw new Error('No URL to save');
+      if (!url) throw new Error('Not a supported model page');
       const { lastFolderId } = await settings.getSettings(['lastFolderId']);
       const msg = { type: 'save', url, folderId: lastFolderId ?? undefined };
       if (tabId != null && detectSite(url) === 'thingiverse') msg.tabId = tabId;

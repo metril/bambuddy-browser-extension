@@ -45,6 +45,14 @@ test('command saves active tab', async () => {
   assert.equal(sent[0].url, 'https://makerworld.com/en/models/5');
 });
 
+test('shortcut with no usable URL reports a clear message', async () => {
+  fc.tabs.setActive({ id: 4 });
+  const r = await bg.onCommand('save-current-page');
+  assert.equal(r.ok, false);
+  assert.equal(r.error, 'Not a supported model page');
+  assert.equal(sent.length, 0);
+});
+
 test('badge set, alarm scheduled, alarm clears', async () => {
   await bg.saveUrl('https://makerworld.com/en/models/1');
   assert.equal(fc.calls.badgeText.at(-1).text, '✓');
