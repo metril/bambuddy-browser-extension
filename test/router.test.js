@@ -39,6 +39,12 @@ test('testConnection', async () => {
   assert.equal(r.mw.has_cloud_token, true);
 });
 
+test('testConnection returns the write-scope note and creates nothing', async () => {
+  client.createFolder = async () => { throw new Error('must not create'); };
+  const r = await router.handle({ type: 'testConnection' });
+  assert.equal(r.scopeNote, 'Write access (can_manage_library) is only verified on first upload.');
+});
+
 test('testConnection auth failure and unconfigured', async () => {
   client.authStatus = async () => err('bad key', 'auth');
   const r = await router.handle({ type: 'testConnection' });
@@ -334,6 +340,18 @@ test('startBulk reuses an existing folder, creates a missing one, imports into e
   assert.ok(chrome.calls.alarmsCreate.some((a) => a.name === 'job-tick' && a.info.periodInMinutes === 0.5));
   assert.ok(chrome.calls.alarmsClear.includes('job-tick'));
   assert.ok(chrome.storage.session.data.job);
+});
+
+test('a throwing job write never stops the bulk job from finishing', async () => {
+  bulkRouter();
+  const orig = chrome.storage.session.set;
+  chrome.storage.session.set = async () => { throw new Error('quota'); };
+  await router.handle({ type: 'startBulk', tabId: 1, collections: COLLS, parentFolderId: 10 });
+  await router.idle();
+  chrome.storage.session.set = orig;
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].imported.length, 4);
+  assert.ok(chrome.calls.alarmsClear.includes('job-tick'));
 });
 
 test('startBulk skips already-imported and was_existing, reports failures', async () => {

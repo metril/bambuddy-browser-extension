@@ -18,6 +18,7 @@ const openUrlFor = (baseUrl, folderId) => {
 
 export const JOB_KEY = 'job';
 export const JOB_ALARM = 'job-tick';
+export const SCOPE_NOTE = 'Write access (can_manage_library) is only verified on first upload.';
 const ALREADY_RUNNING = 'A bulk import is already running';
 
 export function createRouter(deps) {
@@ -41,7 +42,7 @@ export function createRouter(deps) {
     const mw = await client.mwStatus();
     const protocol = await detectProtocol();
     const streamSupport = await probeStream();
-    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol, streamSupport };
+    return { ok: true, auth: auth.data, mw: mw.ok ? mw.data : null, error: mw.ok ? null : mw.error, protocol, streamSupport, scopeNote: SCOPE_NOTE };
   }
 
   async function probeStream() {
@@ -281,7 +282,7 @@ export function createRouter(deps) {
     const pre = [];
     const view = (st) => ({ ...st, failed: [...pre, ...st.failed], ...meta });
     let chain = Promise.resolve();
-    const persist = (st) => { chain = chain.then(() => writeJob(view(st))); return chain; };
+    const persist = (st) => { chain = chain.then(() => writeJob(view(st))).catch(() => {}); return chain; };
     const { concurrency: conc, parentFolderId: parent } = meta;
     let final = null;
     try {

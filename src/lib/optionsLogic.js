@@ -7,6 +7,7 @@ export function isInsecureRemote(url) {
   if (u.protocol !== 'http:') return false;
   const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return false;
+  if (!h.includes('.') && !h.includes(':')) return false; // single-label host (e.g. http://bambuddy:8000)
   if (/\.(local|lan|internal)$/.test(h) || h.endsWith('.home.arpa')) return false;
   const m = h.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
   if (m) {
@@ -48,5 +49,6 @@ export function describeConnection(r) {
     h1: 'not available over HTTP/1.1 (buffer mode will be used)',
   }[r.streamSupport] || 'unknown (run Test connection)';
   lines.push(`Streaming uploads: ${stream}`);
+  if (r.scopeNote) lines.push(r.scopeNote);
   return lines;
 }

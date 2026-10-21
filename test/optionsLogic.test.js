@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { isInsecureRemote, validateSettingsInput, describeConnection, originPattern } from '../src/lib/optionsLogic.js';
 
 test('isInsecureRemote', () => {
-  for (const u of ['https://bb.example', 'http://localhost:8000', 'http://127.0.0.1', 'http://[::1]:80', 'http://192.168.1.5', 'http://10.0.0.1', 'http://172.16.0.1', 'http://172.31.9.9', 'http://[fd12::1]', 'http://printer.local', 'http://a.lan', 'http://a.internal', 'http://a.home.arpa', '', 'junk'])
+  for (const u of ['https://bb.example', 'http://localhost:8000', 'http://127.0.0.1', 'http://[::1]:80', 'http://192.168.1.5', 'http://10.0.0.1', 'http://172.16.0.1', 'http://172.31.9.9', 'http://[fd12::1]', 'http://printer.local', 'http://a.lan', 'http://a.internal', 'http://a.home.arpa', 'http://bambuddy:8000', 'http://nas', '', 'junk'])
     assert.equal(isInsecureRemote(u), false, u);
-  for (const u of ['http://bb.example', 'http://8.8.8.8', 'http://172.32.0.1', 'http://172.15.0.1', 'http://192.169.0.1'])
+  for (const u of ['http://bb.example', 'http://8.8.8.8', 'http://172.32.0.1', 'http://172.15.0.1', 'http://192.169.0.1', 'http://[2001:db8::1]'])
     assert.equal(isInsecureRemote(u), true, u);
 });
 
@@ -35,6 +35,12 @@ test('describeConnection says API key rejected', () => {
 
 test('describeConnection expired session', () => {
   assert.ok(describeConnection({ ok: true, auth: {}, mw: { has_cloud_token: true, sign_in_expired: true } }).includes('MakerWorld cloud: sign-in expired'));
+});
+
+test('describeConnection prints the scope note as the last line', () => {
+  const note = 'Write access (can_manage_library) is only verified on first upload.';
+  assert.equal(describeConnection({ ok: true, auth: {}, mw: null, streamSupport: 'ok', scopeNote: note }).at(-1), note);
+  assert.ok(!describeConnection({ ok: true, auth: {}, mw: null }).includes(note));
 });
 
 test('describeConnection', () => {
