@@ -196,6 +196,13 @@ test('stream cap error is reported even when the client swallows the stream fail
   assert.ok(!names(calls).includes('uploadFile'));
 });
 
+test('a small sizeHint does not disable the stream cap without Content-Length', async () => {
+  const big = [new Array(700 * 1024).fill(1), new Array(700 * 1024).fill(1)];
+  const { base } = setup({ sources: { 'u/a': { chunks: big } } });
+  const r = await runUploadPipeline({ ...base, files: [{ url: 'u/a', filename: 'a.stl', sizeHint: 1000 }] });
+  assert.equal(r.results[0].error, 'File exceeded the 1 MB limit during streaming');
+});
+
 test('large-file confirmation lifts the stream cap', async () => {
   const big = [new Array(700 * 1024).fill(1), new Array(700 * 1024).fill(1)];
   const { base, hooks } = setup({ sources: { 'u/a': { chunks: big, headers: {} } } });

@@ -195,7 +195,7 @@ export function createRouter(deps) {
     const client = await withClient();
     if (!client) return { ok: false, error: 'Not configured' };
     const page = isModelPage(url);
-    if (!page) return { ok: false, error: 'Not a model page' };
+    if (!page) return { ok: false, error: 'Not a supported model page' };
     if (page.site === 'printables') return savePrintables(msg, client);
     if (page.site === 'thingiverse') return saveThingiverse(msg, client);
     if (page.site !== 'makerworld') return { ok: false, error: 'Not supported yet', site: page.site };

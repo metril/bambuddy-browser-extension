@@ -168,13 +168,14 @@ export async function runUploadPipeline({ client, files = [], meta = {}, folderI
   // Stream mode is memory-bounded (one chunk). Without a Content-Length the cap is enforced while
   // streaming (the upload errors past maxFileMB) unless the user confirmed a large file.
   async function doUpload(kind, fileIndex, filename, src, total, opts, confirmed) {
+    const hasLength = Number(src.res.headers?.get?.('content-length')) > 0;
     // Returns { r, mode } where r is the api result.
     const isZip = kind === 'zip';
     const send = async (s0, useMode) => {
       const r0 = s0.res;
       if (useMode === 'stream') {
         const onUp = progress(fileIndex, filename, 'upload');
-        const cap = total || confirmed ? undefined : { maxBytes: limitBytes, onExceed: () => { exceeded = true; } };
+        const cap = hasLength || confirmed ? undefined : { maxBytes: limitBytes, onExceed: () => { exceeded = true; } };
         const parts = streamParts(r0, filename, (b) => onUp(b, total), cap);
         return isZip ? client.extractZipStream(parts, opts) : client.uploadFileStream(parts, opts);
       }

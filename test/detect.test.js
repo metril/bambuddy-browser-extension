@@ -15,6 +15,8 @@ test('isModelPage accepts BCP-47 locale prefixes', () => {
   assert.deepEqual(isModelPage('https://makerworld.com/pt-br/models/123-x'), { site: 'makerworld', id: '123' });
   assert.deepEqual(isModelPage('https://www.printables.com/en-US/model/9-x'), { site: 'printables', id: '9' });
   assert.equal(isModelPage('https://makerworld.com/toolong/models/123'), null);
+  assert.equal(isModelPage('https://makerworld.com/api/models/123'), null);
+  assert.equal(isModelPage('https://makerworld.com/new/models/123'), null);
   assert.equal(isCollectionsPage('https://makerworld.com/zh-hant/@bob/collections'), true);
   assert.equal(isCollectionDetailPage('https://makerworld.com/zh-hans/collections/5-x'), true);
 });

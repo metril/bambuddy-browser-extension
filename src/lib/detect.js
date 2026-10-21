@@ -36,7 +36,7 @@ export const SITES = {
 export const HOST_PATTERNS = Object.values(SITES).flatMap((s) => s.hostPatterns);
 
 // BCP-47-ish locale prefix: en, pt-br, en-US, zh-hans.
-const LOCALE_SRC = '[a-z]{2,3}(?:-[a-z0-9]{2,4})*';
+const LOCALE_SRC = '[a-z]{2}(?:-[a-z0-9]{2,4})*';
 const LOCALE = `(?:${LOCALE_SRC}\\/)?`;
 const MODEL_PATHS = {
   makerworld: new RegExp(`^\\/${LOCALE}models\\/(\\d+)(?:-[^/?#]*)?\\/?$`, 'i'),
