@@ -1,8 +1,49 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><title>Bambuddy</title></head>
+<head>
+<meta charset="utf-8"><title>Bambuddy</title>
+<style>
+  body { font: 13px system-ui, sans-serif; width: 340px; margin: 0; padding: 12px; }
+  [hidden] { display: none !important; }
+  select, button { width: 100%; margin: 4px 0; padding: 6px; box-sizing: border-box; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row img { width: 64px; height: 64px; object-fit: cover; border-radius: 4px; }
+  .banner { background: #fff4d6; border: 1px solid #e0c36a; padding: 6px; border-radius: 4px; margin: 6px 0; color: #4a3b00; }
+  .hint { color: #8a5a00; }
+  .err { color: #b00020; }
+  .muted { color: #666; }
+</style>
+</head>
 <body>
-<p>Bambuddy</p>
+<section id="view-loading" class="muted">Loading...</section>
+<section id="view-setup" hidden>
+  <p>Set your Bambuddy URL and API key to get started.</p>
+  <a id="open-options" href="#">Open Options</a>
+</section>
+<section id="view-unsupported" hidden><p>Open a MakerWorld, Printables or Thingiverse model page to import it.</p></section>
+<section id="view-other" hidden><p>Printables/Thingiverse support arrives in a later task.</p></section>
+<section id="view-makerworld" hidden>
+  <div class="row"><img id="thumb" alt="" hidden><div><strong id="title"></strong><div id="designer" class="muted"></div></div></div>
+  <div id="paid" class="hint" hidden>Paid model - import may fail</div>
+  <div id="dup" class="banner" hidden>
+    Already in your library.
+    <button id="dup-open" type="button">Open in Bambuddy</button>
+    <button id="dup-anyway" type="button">Import anyway</button>
+  </div>
+  <label>Profile <select id="profile"></select></label>
+  <label>Folder <select id="folder"></select></label>
+  <button id="import" type="button">Import to Bambuddy</button>
+</section>
+<section id="view-busy" hidden class="muted">Working...</section>
+<section id="view-done" hidden>
+  <p><strong id="done-name"></strong></p>
+  <p id="done-existing" hidden>Already in library</p>
+  <a id="done-open" href="#" target="_blank" rel="noopener">Open in Bambuddy</a>
+</section>
+<section id="view-error" hidden>
+  <p id="error-text" class="err"></p>
+  <p id="error-auth" hidden>Check your API key in <a id="error-options" href="#">Options</a></p>
+</section>
 <script type="module" src="popup.js"></script>
 </body>
 </html>

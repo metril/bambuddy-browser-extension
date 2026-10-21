@@ -1,0 +1,42 @@
+{
+ "model_id": 200000,
+ "profile_id": null,
+ "design": {
+  "id": 200000,
+  "modelId": "US7486a0d1a780a8",
+  "title": "Mewtwo 2D",
+  "slug": "mewtwo-2d",
+  "coverUrl": "https://makerworld.bblmw.com/makerworld/model/US7486a0d1a780a8/design/2024-02-23_22e48abf39125.jpg",
+  "defaultInstanceId": 220545,
+  "paidSetting": {
+   "isPaid": false,
+   "crowdfunding": 0
+  },
+  "license": "BY-NC",
+  "isExclusive": false,
+  "isPrintable": true,
+  "designType": 0,
+  "designCreator": {
+   "uid": 483749265,
+   "name": "DAMA3D",
+   "handle": "dama3d",
+   "avatar": "https://public-cdn.bblmw.com/avatar/483749265/2024-02-22_3ddb0a0f7e86a.png"
+  }
+ },
+ "instances": [
+  {
+   "id": 220545,
+   "profileId": 53897437,
+   "title": "0.2mm nozzle, 0.1mm layer, 4 walls, 15% infill",
+   "cover": "https://makerworld.bblmw.com/makerworld/model/US7486a0d1a780a8/52778762/instance/2024-02-22_fc9ced7874171.png",
+   "compatibility": {
+    "devModelName": "BL-P001",
+    "devProductName": "X1 Carbon",
+    "nozzleDiameter": 0.2
+   },
+   "score": 0,
+   "pictures": []
+  }
+ ],
+ "already_imported_library_ids": []
+}
