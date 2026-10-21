@@ -1,22 +1,27 @@
 import { createClient } from './lib/api.js';
 import * as settings from './lib/settings.js';
 import { createRouter } from './lib/router.js';
+import { createBackground } from './lib/backgroundLogic.js';
+import { execInTab } from './execInTab.js';
 
 const router = createRouter({
   settings,
   chrome,
   onProgress: (p) => { chrome.runtime.sendMessage({ type: 'progress', ...p }).catch(() => {}); },
-  async execInTab(tabId, func, args = []) {
-    const [first] = await chrome.scripting.executeScript({ target: { tabId }, func, args });
-    return first?.result;
-  },
+  execInTab,
   async getClient() {
     const s = await settings.getSettings(['baseUrl', 'apiKey']);
     return settings.isConfigured(s) ? createClient({ baseUrl: s.baseUrl, apiKey: s.apiKey }) : null;
   },
 });
 
-chrome.runtime.onInstalled.addListener(() => console.debug('Bambuddy extension installed'));
+const bg = createBackground({ chrome, router, settings });
+
+chrome.runtime.onInstalled.addListener(() => { bg.install(); });
+chrome.contextMenus.onClicked.addListener((info, tab) => { bg.onMenuClick(info, tab); });
+chrome.commands.onCommand.addListener((command) => { bg.onCommand(command); });
+chrome.alarms.onAlarm.addListener((alarm) => { bg.onAlarm(alarm); });
+chrome.notifications.onClicked.addListener((id) => { bg.onNotificationClicked(id); });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id) return false;

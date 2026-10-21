@@ -37,7 +37,8 @@ function area() {
 export function createFakeChrome() {
   const local = area();
   const session = area();
-  const calls = { alarmsCreate: [], alarmsClear: [], badgeText: [], badgeColor: [], notifications: [], messages: [] };
+  const calls = { alarmsCreate: [], alarmsClear: [], badgeText: [], badgeColor: [], notifications: [], messages: [], menus: [], menusRemoved: 0, tabsCreated: [] };
+  let activeTab = null;
   return {
     calls,
     storage: { local, session },
@@ -51,6 +52,16 @@ export function createFakeChrome() {
     },
     notifications: {
       async create(id, opts) { calls.notifications.push({ id, opts }); return id; },
+      async clear() { return true; },
+    },
+    contextMenus: {
+      async removeAll() { calls.menusRemoved++; calls.menus.length = 0; },
+      create(d) { calls.menus.push(d); },
+    },
+    tabs: {
+      async query() { return activeTab ? [activeTab] : []; },
+      async create(d) { calls.tabsCreated.push(d); },
+      setActive(t) { activeTab = t; },
     },
     runtime: {
       async sendMessage(msg) { calls.messages.push(msg); },
