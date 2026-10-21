@@ -29,11 +29,15 @@ test('originPattern', () => {
   assert.equal(originPattern(''), '');
 });
 
+test('describeConnection expired session', () => {
+  assert.ok(describeConnection({ ok: true, auth: {}, mw: { has_cloud_token: true, sign_in_expired: true } }).includes('MakerWorld cloud: sign-in expired'));
+});
+
 test('describeConnection', () => {
   assert.deepEqual(describeConnection({ ok: false, error: 'bad key' }), ['Connection failed: bad key']);
   const l = describeConnection({ ok: true, auth: { auth_enabled: true }, mw: { has_cloud_token: true }, protocol: 'h2' });
   assert.deepEqual(l, ['Auth: enabled', 'API key accepted', 'MakerWorld cloud: signed in', 'HTTP protocol: h2']);
-  const l2 = describeConnection({ ok: true, auth: { auth_enabled: false }, mw: { has_cloud_token: false, error: 'x' } });
+  const l2 = describeConnection({ ok: true, auth: { auth_enabled: false }, mw: { has_cloud_token: false } });
   assert.deepEqual(l2, ['Auth: disabled', 'API key accepted', 'MakerWorld cloud: no cloud token']);
   assert.match(describeConnection({ ok: true, auth: {}, mw: null, error: 'token expired' }).join(), /sign-in expired/);
 });

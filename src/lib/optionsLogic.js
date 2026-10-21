@@ -36,7 +36,8 @@ export function originPattern(baseUrl) {
 export function describeConnection(r) {
   if (!r || !r.ok) return [`Connection failed: ${r?.error || 'unknown error'}`];
   const lines = [`Auth: ${r.auth?.auth_enabled ? 'enabled' : 'disabled'}`, 'API key accepted'];
-  if (r.mw?.has_cloud_token) lines.push('MakerWorld cloud: signed in');
+  if (r.mw?.sign_in_expired) lines.push('MakerWorld cloud: sign-in expired');
+  else if (r.mw?.has_cloud_token) lines.push('MakerWorld cloud: signed in');
   else if (r.mw) lines.push('MakerWorld cloud: no cloud token');
   else lines.push(/expired|401|403|sign/i.test(r.error || '') ? 'MakerWorld cloud: sign-in expired' : 'MakerWorld cloud: unavailable');
   if (r.protocol) lines.push(`HTTP protocol: ${r.protocol}`);
