@@ -73,10 +73,13 @@ async function gql(fetchImpl, body) {
   return json;
 }
 
-export async function fetchPrintablesModel(url, { fetchImpl = globalThis.fetch } = {}) {
-  const id = parseModelId(url);
+export async function fetchPrint(id, { fetchImpl = globalThis.fetch } = {}) {
   if (!id) throw new Error('Not a Printables model URL');
-  const print = parsePrint(await gql(fetchImpl, buildPrintQuery(id)));
+  return parsePrint(await gql(fetchImpl, buildPrintQuery(id)));
+}
+
+export async function fetchPrintablesModel(url, { fetchImpl = globalThis.fetch } = {}) {
+  const print = await fetchPrint(parseModelId(url), { fetchImpl });
   if (print.premium) throw new Error('Printables Club / paid model — download it in Printables and upload manually');
   const selected = selectFiles(print);
   const files = [];

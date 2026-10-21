@@ -174,14 +174,14 @@ test('save printables: pipeline, lastFolderId, diagnostics, progress', async () 
 });
 
 test('save printables: needsConfirmLarge round-trip', async () => {
-  const f = prFetch({ bytes: 300 * 1024 * 1024 });
+  const big = { data: { print: { ...prPrint.data.print, stls: [{ id: '1', name: 'b.stl', fileSize: 300 * 1024 * 1024 }] } } };
+  const f = prFetch({ print: big });
   const c = prClient();
   await settings.setSettings({ uploadMode: 'buffer' });
   router = createRouter({ getClient: async () => c, settings, fetchImpl: f });
   const r1 = await router.handle({ type: 'save', url: PR, folderId: null });
   assert.equal(r1.ok, false);
-  assert.equal(r1.needsConfirmLarge.filename, 'b.stl');
-  assert.equal(r1.needsConfirmLarge.bytes, 300 * 1024 * 1024);
+  assert.deepEqual(r1.needsConfirmLarge.files, [{ filename: 'b.stl', bytes: 300 * 1024 * 1024 }]);
   assert.equal(c.uploads.length, 0);
   const r2 = await router.handle({ type: 'save', url: PR, folderId: null, confirmLarge: true });
   assert.equal(r2.needsConfirmLarge, undefined);
@@ -206,4 +206,28 @@ test('save printables: auto -> buffer persisted via setUploadMode', async () => 
   const r = await router.handle({ type: 'save', url: PR });
   assert.equal(r.ok, true);
   assert.equal(await settings.getSetting('uploadMode'), 'buffer');
+});
+
+test('save printables: two files, one large -> one upload per file across both passes', async () => {
+  const two = { data: { print: { ...prPrint.data.print, stls: [{ id: '1', name: 'b.stl', fileSize: 3 }, { id: '2', name: 'c.stl', fileSize: 300 * 1024 * 1024 }] } } };
+  const f = async (url, init) => {
+    if (url.includes('graphql') && !JSON.parse(init.body).query.startsWith('query')) {
+      return jsonRes({ data: { getDownloadLink: { ok: true, output: { link: `https://files.printables.com/${JSON.parse(init.body).variables.files[0].ids[0]}.stl` } } } });
+    }
+    if (url.includes('graphql')) return jsonRes(two);
+    if (url.startsWith('https://files.')) return { ok: true, status: 200, headers: new Headers(), body: new Response(new Uint8Array([1])).body };
+    return { ok: true, status: 200, headers: new Headers(), blob: async () => new Blob([new Uint8Array(1)]) };
+  };
+  const c = prClient();
+  await settings.setSettings({ uploadMode: 'buffer' });
+  router = createRouter({ getClient: async () => c, settings, fetchImpl: f });
+  const r1 = await router.handle({ type: 'save', url: PR, folderId: 5 });
+  assert.equal(r1.ok, false);
+  assert.deepEqual(r1.needsConfirmLarge.files.map((x) => x.filename), ['c.stl']);
+  assert.equal(c.uploads.length, 0);
+  assert.equal(await settings.getSetting('lastFolderId'), null);
+  const r2 = await router.handle({ type: 'save', url: PR, folderId: 5, confirmLarge: true });
+  assert.equal(r2.ok, true);
+  assert.deepEqual(c.uploads.map((u) => u.name), ['b.stl', 'c.stl']);
+  assert.equal(await settings.getSetting('lastFolderId'), 5);
 });

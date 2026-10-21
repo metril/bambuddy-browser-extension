@@ -40,7 +40,7 @@ function showDone(r) {
   $('done-name').textContent = r.filename || (r.fileIds ? `${r.fileIds.length} file(s) imported` : '');
   $('done-existing').hidden = !r.wasExisting;
   $('done-open').href = r.openUrl;
-  const w = r.warnings || [];
+  const w = [...(r.warnings || []), ...(r.results || []).filter((x) => !x.ok).map((x) => `${x.filename}: ${x.error}`)];
   $('done-warnings').replaceChildren(...w.map((t) => Object.assign(document.createElement('li'), { textContent: t })));
   show('done');
 }
@@ -55,7 +55,7 @@ async function savePrintables() {
     return showError({ error: e?.message || 'Extension background unavailable' });
   }
   if (r?.needsConfirmLarge) {
-    $('pr-confirm-text').textContent = `${r.needsConfirmLarge.filename} is ${mb(r.needsConfirmLarge.bytes)} MB, import anyway?`;
+    $('pr-confirm-text').textContent = `${r.needsConfirmLarge.files.map((f) => `${f.filename} is ${mb(f.bytes)} MB`).join(', ')}, import anyway?`;
     $('pr-confirm').hidden = false;
     $('pr-import').hidden = true;
     return show('printables');

@@ -2,7 +2,7 @@
 import { isModelPage, detectSite } from './detect.js';
 import { toPickerModel, buildImportBody } from './adapters/makerworld.js';
 import { flattenFolders } from './folders.js';
-import { fetchPrintablesModel, parsePrint, selectFiles, buildPrintQuery, parseModelId, GRAPHQL_URL } from './adapters/printables.js';
+import { fetchPrintablesModel, fetchPrint, selectFiles, parseModelId } from './adapters/printables.js';
 import { runUploadPipeline } from './uploadPipeline.js';
 
 const fail = (r) => ({ ok: false, error: r.error, kind: r.kind });
@@ -53,14 +53,7 @@ export function createRouter(deps) {
 
   async function printablesPicker(url, folders, lastFolderId) {
     try {
-      const id = parseModelId(url);
-      const res = await fetchImpl(GRAPHQL_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify(buildPrintQuery(id)),
-        credentials: 'include',
-      });
-      const print = parsePrint(await res.json());
+      const print = await fetchPrint(parseModelId(url), { fetchImpl });
       const files = selectFiles(print).map((f) => f.name);
       return {
         ok: true, site: 'printables',
@@ -85,16 +78,21 @@ export function createRouter(deps) {
       return { ok: false, site: 'printables', error, kind: 'client' };
     }
     const s = await settings.getSettings(['uploadMode', 'maxFileMB', 'tagUploads', 'baseUrl']);
-    let needsConfirmLarge;
+    const limit = s.maxFileMB * 1048576;
+    const big = model.files.filter((f) => f.sizeHint > limit).map((f) => ({ filename: f.filename, bytes: f.sizeHint }));
+    if (big.length && confirmLarge !== true) {
+      return {
+        ok: false, site: 'printables', error: `Large file(s) over ${s.maxFileMB} MB need confirmation`,
+        needsConfirmLarge: { files: big }, fileIds: [], results: [], warnings: [], skipped: [],
+      };
+    }
     const hooks = {
       onProgress: (p) => deps.onProgress?.(p),
-      confirmLarge: async (info) => {
-        if (confirmLarge === true) return true;
-        needsConfirmLarge = info;
-        return false;
-      },
+      confirmLarge: async () => confirmLarge === true,
       setUploadMode: async (m) => {
-        if (m === 'buffer' && s.uploadMode === 'auto') await settings.setSetting('uploadMode', 'buffer');
+        try {
+          if (m === 'buffer' && s.uploadMode === 'auto') await settings.setSetting('uploadMode', 'buffer');
+        } catch { /* best-effort */ }
       },
     };
     const out = await runUploadPipeline({
@@ -104,14 +102,13 @@ export function createRouter(deps) {
     });
     const failed = out.results.find((r) => !r.ok);
     await recordDiag('printables', { strategy: 'graphql', ...(out.ok ? {} : { error: failed?.error || 'Upload failed' }) });
-    await settings.setSetting('lastFolderId', fid);
     const res = {
-      ok: out.ok && !needsConfirmLarge && (out.fileIds.length > 0 || out.results.some((r) => r.ok)),
+      ok: out.ok && out.results.some((r) => r.ok),
       site: 'printables', fileIds: out.fileIds, results: out.results, warnings: out.warnings, skipped: out.skipped,
       openUrl: openUrlFor(s.baseUrl, fid),
     };
-    if (!res.ok) res.error = needsConfirmLarge ? `File is larger than ${s.maxFileMB} MB` : failed?.error || 'Nothing was imported';
-    if (needsConfirmLarge) res.needsConfirmLarge = needsConfirmLarge;
+    if (!res.ok) res.error = failed?.error || 'Nothing was imported';
+    else await settings.setSetting('lastFolderId', fid);
     return res;
   }
 
