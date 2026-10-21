@@ -1,8 +1,8 @@
 import { getSettings } from './lib/settings.js';
-import { deriveState, folderOptions, profileOptions } from './lib/popupState.js';
+import { deriveState, folderOptions, profileOptions, collectionChoices, selectedCollections, jobView } from './lib/popupState.js';
 
 const $ = (id) => document.getElementById(id);
-const VIEWS = ['loading', 'setup', 'unsupported', 'other', 'makerworld', 'printables', 'busy', 'done', 'error'];
+const VIEWS = ['loading', 'setup', 'unsupported', 'other', 'makerworld', 'printables', 'busy', 'done', 'error', 'collections', 'collection', 'job'];
 const show = (name) => VIEWS.forEach((v) => { $(`view-${v}`).hidden = v !== name; });
 const send = (msg) => chrome.runtime.sendMessage(msg);
 const openOptions = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
@@ -114,6 +114,83 @@ async function doSave() {
   show('done');
 }
 
+let collections = [];
+let jobWatching = false;
+
+function renderJob(job) {
+  const v = jobView(job);
+  if (v.kind === 'none') return false;
+  $('job-bar').value = v.kind === 'summary' ? 100 : v.percent;
+  $('job-text').textContent = v.text;
+  $('job-cancel').hidden = v.kind !== 'progress';
+  $('job-resume').hidden = v.kind !== 'interrupted';
+  $('job-dismiss').hidden = v.kind === 'progress';
+  $('job-open').hidden = !(v.kind === 'summary' && v.openUrl);
+  if (v.openUrl) $('job-open').href = v.openUrl;
+  $('job-failures').replaceChildren(...(v.failures || []).map((f) => Object.assign(document.createElement('li'), { textContent: `${f.title}: ${f.error}` })));
+  show('job');
+  return true;
+}
+
+function watchJob() {
+  if (jobWatching) return;
+  jobWatching = true;
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.job?.newValue && !$('view-job').hidden) renderJob(changes.job.newValue);
+  });
+}
+
+async function startBulk(chosen, parentId) {
+  if (!chosen.length) return;
+  let r;
+  try {
+    r = await send({ type: 'startBulk', tabId, collections: chosen, parentFolderId: parentId ? Number(parentId) : null });
+  } catch (e) {
+    return showError({ error: e?.message || 'Extension background unavailable' });
+  }
+  if (!r?.ok) return showError(r);
+  const g = await send({ type: 'getJob' });
+  watchJob();
+  renderJob(g?.job) || show('busy');
+}
+
+async function initCollections(single) {
+  let r;
+  try {
+    r = await send({ type: 'listCollections', tabId });
+  } catch (e) {
+    return showError({ error: e?.message || 'Extension background unavailable' });
+  }
+  if (!r?.ok) return showError(r);
+  collections = r.collections;
+  const parentOpts = folderOptions(r.folders, null, 'Top level');
+  if (single) {
+    $('one-title').textContent = collections[0]?.title || '';
+    fill($('one-parent'), parentOpts);
+    $('one-import').addEventListener('click', () => startBulk(selectedCollections(collections, collections.map((c) => c.listId)), $('one-parent').value));
+    return show('collection');
+  }
+  $('col-list').replaceChildren(...collectionChoices(collections).map((c) => {
+    const l = document.createElement('label');
+    const cb = Object.assign(document.createElement('input'), { type: 'checkbox', value: c.value, checked: c.checked });
+    l.append(cb, ` ${c.label}`);
+    return l;
+  }));
+  fill($('col-parent'), parentOpts);
+  $('col-import').addEventListener('click', () => {
+    const ids = [...$('col-list').querySelectorAll('input:checked')].map((i) => i.value);
+    startBulk(selectedCollections(collections, ids), $('col-parent').value);
+  });
+  show('collections');
+}
+
+async function normalInit(st) {
+  if (st.state === 'collections' || st.state === 'collection') return initCollections(st.state === 'collection');
+  if (st.state === 'printables' || st.state === 'thingiverse') { site = st.state; return initPrintables(); }
+  if (st.state !== 'makerworld') return show(st.state);
+  return initMakerworld();
+}
+
 async function init() {
   $('open-options').addEventListener('click', openOptions);
   $('error-options').addEventListener('click', openOptions);
@@ -123,8 +200,22 @@ async function init() {
   const settings = await getSettings(['baseUrl', 'apiKey']);
   baseUrl = settings.baseUrl;
   const st = deriveState({ settings, tabUrl });
-  if (st.state === 'printables' || st.state === 'thingiverse') { site = st.state; return initPrintables(); }
-  if (st.state !== 'makerworld') return show(st.state);
+  if (st.state !== 'setup') {
+    $('job-cancel').addEventListener('click', () => send({ type: 'cancelBulk' }));
+    $('job-dismiss').addEventListener('click', () => { send({ type: 'dismissJob' }).catch(() => {}); normalInit(st).catch((e) => showError({ error: e.message })); });
+    $('job-resume').addEventListener('click', async () => {
+      const job = (await send({ type: 'getJob' }))?.job;
+      const useTab = st.state === 'collections' || st.state === 'collection' ? tabId : job?.tabId;
+      tabId = useTab;
+      startBulk(job?.collections || [], job?.parentFolderId);
+    });
+    const g = await send({ type: 'getJob' }).catch(() => null);
+    if (g?.job && jobView(g.job).kind !== 'none') { watchJob(); renderJob(g.job); return; }
+  }
+  return normalInit(st);
+}
+
+async function initMakerworld() {
   let r;
   try {
     r = await send({ type: 'getPickerData', url: tabUrl });

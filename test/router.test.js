@@ -402,3 +402,10 @@ test('job state falls back to storage.local when session is unavailable; listCol
   await router.idle();
   assert.ok(local.data.job);
 });
+
+test('dismissJob clears a finished job but not a running one', async () => {
+  bulkRouter();
+  await chrome.storage.session.set({ job: { status: 'done' } });
+  assert.equal((await router.handle({ type: 'dismissJob' })).ok, true);
+  assert.equal((await router.handle({ type: 'getJob' })).job, null);
+});

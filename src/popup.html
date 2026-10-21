@@ -13,6 +13,9 @@
   .err { color: #b00020; }
   .files { margin: 6px 0; padding-left: 18px; word-break: break-all; }
   .muted { color: #666; }
+  .checks { max-height: 220px; overflow: auto; margin: 6px 0; }
+  .checks label { display: block; padding: 2px 0; }
+  progress { width: 100%; }
 </style>
 </head>
 <body>
@@ -47,6 +50,26 @@
   <label>Profile <select id="profile"></select></label>
   <label>Folder <select id="folder"></select></label>
   <button id="import" type="button">Import to Bambuddy</button>
+</section>
+<section id="view-collections" hidden>
+  <strong id="col-heading">Import collections into Bambuddy</strong>
+  <div id="col-list" class="checks"></div>
+  <label>Parent folder <select id="col-parent"></select></label>
+  <button id="col-import" type="button">Import selected into Bambuddy</button>
+</section>
+<section id="view-collection" hidden>
+  <strong id="one-title"></strong>
+  <label>Parent folder <select id="one-parent"></select></label>
+  <button id="one-import" type="button">Import this collection</button>
+</section>
+<section id="view-job" hidden>
+  <progress id="job-bar" max="100" value="0"></progress>
+  <p id="job-text"></p>
+  <ul id="job-failures" class="err"></ul>
+  <button id="job-cancel" type="button" hidden>Cancel</button>
+  <button id="job-resume" type="button" hidden>Resume</button>
+  <a id="job-open" href="#" target="_blank" rel="noopener" hidden>Open folder in Bambuddy</a>
+  <button id="job-dismiss" type="button" hidden>Done</button>
 </section>
 <section id="view-busy" hidden class="muted">
   <div id="busy-text">Working...</div>

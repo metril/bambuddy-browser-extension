@@ -31,3 +31,28 @@ test('profileOptions', () => {
   assert.equal(o[0].instanceId, 11);
   assert.deepEqual(profileOptions(null), []);
 });
+
+import { collectionChoices, selectedCollections, jobView } from '../src/lib/popupState.js';
+
+test('deriveState recognises collection pages', () => {
+  assert.equal(deriveState({ settings: ok, tabUrl: 'https://makerworld.com/en/@bob/collections' }).state, 'collections');
+  assert.equal(deriveState({ settings: ok, tabUrl: 'https://makerworld.com/en/collections/5-x' }).state, 'collection');
+});
+
+test('collection checklist helpers', () => {
+  const cs = [{ listId: '1', title: 'A', count: 3, slug: 'a', isDefault: true }, { listId: '2', title: 'B', count: null, slug: null }];
+  assert.deepEqual(collectionChoices(cs, ['2']), [{ value: '1', label: 'A (3)', checked: false }, { value: '2', label: 'B', checked: true }]);
+  assert.deepEqual(selectedCollections(cs, ['2']), [{ listId: '2', title: 'B', slug: null, count: null }]);
+});
+
+test('jobView: progress, interrupted, summary, expiry', () => {
+  assert.equal(jobView(null).kind, 'none');
+  assert.equal(jobView({ status: 'running', phase: 'preparing', total: 0 }).text, 'Reading collections...');
+  const p = jobView({ status: 'running', total: 4, done: 1, skipped: 1, failed: [{}] });
+  assert.deepEqual([p.kind, p.percent, p.text], ['progress', 25, '1 / 4 done, 1 skipped, 1 failed']);
+  assert.equal(jobView({ status: 'interrupted', total: 4, done: 2, imported: [{}], skipped: 1, failed: [] }).kind, 'interrupted');
+  const s = jobView({ status: 'done', total: 2, done: 2, imported: [{}], skipped: 0, failed: [{ title: 'x', error: 'e' }], finishedAt: 1000, openUrl: 'u' }, 2000);
+  assert.deepEqual([s.kind, s.text, s.openUrl, s.failures], ['summary', 'Imported 1, skipped 0, failed 1', 'u', [{ title: 'x', error: 'e' }]]);
+  assert.equal(jobView({ status: 'cancelled', finishedAt: 1, failed: [] }, 2000).text.startsWith('Cancelled.'), true);
+  assert.equal(jobView({ status: 'done', finishedAt: 1, failed: [] }, 1e9).kind, 'none');
+});

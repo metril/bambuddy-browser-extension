@@ -315,6 +315,12 @@ export function createRouter(deps) {
     return { ok: true, job: await readJob(), running: !!active };
   }
 
+  async function dismissJob() {
+    if (active) return { ok: false, error: ALREADY_RUNNING };
+    try { await jobArea().remove(JOB_KEY); } catch { /* ignore */ }
+    return { ok: true };
+  }
+
   /** On SW startup: a stored "running" job has no live worker, so mark it interrupted. */
   async function markInterrupted() {
     if (active) return;
@@ -323,7 +329,7 @@ export function createRouter(deps) {
     await clearTick();
   }
 
-  const handlers = { testConnection, getPickerData, save, listCollections, startBulk, cancelBulk, getJob };
+  const handlers = { testConnection, getPickerData, save, listCollections, startBulk, cancelBulk, getJob, dismissJob };
 
   return {
     markInterrupted,
