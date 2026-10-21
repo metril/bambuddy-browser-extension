@@ -1,9 +1,7 @@
-# Bambuddy browser extension: design
-
-# Bambuddy browser extension (MV3) — port of the 3D Model Manager extension
+# Bambuddy browser extension design (MV3), port of the 3D Model Manager extension
 
 ## Context
-The existing extension at `/home/OLYMPOS/jagannath/projects/3d-model-manager/extension` saves MakerWorld/Thingiverse/Printables pages into 3D Model Manager via that app's `/api/ext/*` routes, pushes a MakerWorld cookie, and syncs "remote collections". The user is moving to **Bambuddy** (v1.2.5.7, `https://bambuddy.azureolympos.com`, auth enabled, Bambu Cloud signed in). Bambuddy has a different API surface, so this is a new standalone repo at `/home/OLYMPOS/jagannath/projects/bambuddy-browser-extension` (empty today), version 0.1.0, same no-bundler ESM + `node --test` style.
+The existing extension at the previous 3D Model Manager extension saves MakerWorld/Thingiverse/Printables pages into 3D Model Manager via that app's `/api/ext/*` routes, pushes a MakerWorld cookie, and syncs "remote collections". The user is moving to **Bambuddy** (v1.2.5.7, `https://bambuddy.example`, auth enabled, Bambu Cloud signed in). Bambuddy has a different API surface, so this is a new standalone repo (empty today), version 0.1.0, same no-bundler ESM + `node --test` style.
 
 Decisions already made with the user:
 - All three sites. Printables/Thingiverse files are fetched **into memory by the service worker** and uploaded; nothing touches the Downloads folder.

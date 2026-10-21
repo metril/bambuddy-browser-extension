@@ -13,3 +13,7 @@ Status: in development
 ## Verified site behaviour
 
 _To be filled in._
+
+## Release
+
+`npm run zip` builds `dist/bambuddy-extension-<version>.zip` and requires the external `zip` binary.
