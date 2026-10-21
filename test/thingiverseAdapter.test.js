@@ -92,7 +92,7 @@ test('fetchThingiverseModel: HTML + links -> links strategy', async () => {
   const { f } = fakeFetch('text/html');
   const r = await fetchThingiverseModel(U, { fetchImpl: f, pageData: { title: 'B', fileLinks: links } });
   assert.equal(r.strategy, 'links');
-  assert.deepEqual(r.files.map((x) => x.url), ['https://www.thingiverse.com/download:11', 'https://www.thingiverse.com/download:12', 'https://www.thingiverse.com/download:13']);
+  assert.deepEqual(r.files.map((x) => x.url), ['https://www.thingiverse.com/download:11', 'https://www.thingiverse.com/download:12', 'https://www.thingiverse.com/download:13', 'https://www.thingiverse.com/download:14']);
 });
 
 test('fetchThingiverseModel: HTML + no links throws Cloudflare message', async () => {
